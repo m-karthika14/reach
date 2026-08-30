@@ -19,6 +19,10 @@
     #bill-view table { width: 100%; border-collapse: collapse; margin-top: 8px; }
     #bill-view td { padding: 6px 4px; border-bottom: 1px solid #e3e6ee; }
     #bill-view td:last-child { text-align: right; font-weight: 600; }
+    .iconbar { display: flex; gap: 14px; margin-top: 8px; }
+    .iconbar button { font-size: 26px; padding: 10px 16px; background: #eef2ff; color: inherit; }
+    #pay-panel[hidden], #profile-panel[hidden] { display: none; }
+    #pay-panel { border-color: #bfdbfe; background: #f8fbff; }
   </style>
 </head>
 <body>
@@ -41,9 +45,31 @@
 
     <button id="submit-btn">Submit</button>
 
+    <!-- Phase 6: deliberately inaccessible icon nav. All three have the same
+         useless aria-label; only the emoji distinguishes them. Structure Agent
+         cannot tell which is payment -> Vision Agent reads the screenshot. -->
+    <div class="iconbar" aria-label="navigation">
+      <button id="icon-home" aria-label="button">&#127968;</button>
+      <button id="icon-pay" aria-label="button">&#128179;</button>
+      <button id="icon-user" aria-label="button">&#128100;</button>
+    </div>
+
     <div class="status" id="status">Waiting for action&hellip;</div>
 
     <p style="margin-top:16px"><a href="page-b.html" id="to-page-b">Go to Page B</a></p>
+  </div>
+
+  <div class="card" id="pay-panel" hidden>
+    <h2>Make a Payment</h2>
+    <p>Amount: <strong>&#8377;1,240.00</strong></p>
+    <label for="card-number">Card number</label>
+    <input id="card-number" inputmode="numeric" placeholder="0000 0000 0000 0000" />
+    <button id="confirm-payment">Confirm payment</button>
+  </div>
+
+  <div class="card" id="profile-panel" hidden>
+    <h2>Your Profile</h2>
+    <p>Name: Karthika M &nbsp;&middot;&nbsp; Consumer no. 4471-2290</p>
   </div>
 
   <div class="card" id="bill-view" hidden>
@@ -94,6 +120,20 @@
       report("Payment details opened");
     });
     document.getElementById("bottom-button").addEventListener("click", () => report("Bottom Button clicked"));
+    document.getElementById("icon-home").addEventListener("click", () => {
+      window.scrollTo({ top: 0, behavior: "smooth" }); report("Home");
+    });
+    document.getElementById("icon-pay").addEventListener("click", () => {
+      const p = document.getElementById("pay-panel");
+      p.hidden = false; p.scrollIntoView({ behavior: "smooth", block: "start" });
+      report("Payment screen opened");
+    });
+    document.getElementById("icon-user").addEventListener("click", () => {
+      const p = document.getElementById("profile-panel");
+      p.hidden = false; p.scrollIntoView({ behavior: "smooth", block: "start" });
+      report("Profile opened");
+    });
+    document.getElementById("confirm-payment").addEventListener("click", () => report("Payment confirmed - receipt #RCPT-8890"));
     document.getElementById("submit-btn").addEventListener("click", () => {
       const email = document.getElementById("email").value;
       const lang = document.getElementById("language").value;

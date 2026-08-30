@@ -26,6 +26,7 @@ class SessionState(BaseModel):
     current_candidates: List[dict] = []       # [{name, selector, kind}]
     pending_confirmation: Optional[dict] = None   # a consequential action awaiting "yes"
     verification_status: Optional[dict] = None    # {success, reason}
+    perception_mode: Optional[str] = None         # "structure" | "vision" (last turn)
 
     conversation_history: List[Turn] = []
 

@@ -1,4 +1,9 @@
-# REACH Extension — Phase 5
+# REACH Extension — Phase 6
+
+The extension now **always sends a screenshot** with chat and loop requests so
+the backend can fall back to the Vision Agent on ambiguous/icon pages (Phase 6).
+The chat log shows the perception route per turn:
+`perception: structure (structure 4400ms)` or `perception: vision 👁 (structure 4400ms + vision 5000ms)`.
 
 Browser observation + action layer (Phase 1) plus:
 - **Conversation** panel — stateful multi-turn chat with REACH (`/chat`). The

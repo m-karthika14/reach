@@ -18,7 +18,9 @@ from .manager import SessionManager, new_session_id
 
 log = logging.getLogger("reach.chat")
 
-CONFIDENCE_GATE = 0.80
+# A confident action returns ~0.95-1.0; ~0.8 is the model guessing at the
+# closest element. Don't auto-run guesses (matches the autonomous-loop gate).
+CONFIDENCE_GATE = 0.85
 
 _VERB = {
     "click": "clicking", "type": "entering that", "select": "choosing that",
@@ -116,10 +118,13 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                     goal=goal_for_reasoning,
                     url=req.url,
                     dom=req.dom,
+                    screenshot=req.screenshot,
                     history_text=manager.actions_text(state),
                 )
-                log.info("[CHAT] reason -> %s %s conf=%.2f",
-                         resp.action, resp.target, resp.confidence)
+                state.perception_mode = resp.perception_mode
+                log.info("[CHAT] reason -> %s %s conf=%.2f perception=%s%s",
+                         resp.action, resp.target, resp.confidence,
+                         resp.perception_mode, " +vision" if resp.vision_used else "")
 
                 if resp.action == "none":
                     state.status = "completed" if resp.done else "blocked"

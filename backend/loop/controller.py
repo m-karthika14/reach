@@ -16,7 +16,7 @@ log = logging.getLogger("reach.loop")
 
 def _step(status: LoopStatus, step: int, *, action="none", target=None, value=None,
           confidence=0.0, done=False, requires_confirmation=False, reason=None,
-          verification=None) -> LoopStepResponse:
+          verification=None, perception_mode=None, vision_used=False) -> LoopStepResponse:
     return LoopStepResponse(
         status=status.value,
         done=done,
@@ -28,6 +28,8 @@ def _step(status: LoopStatus, step: int, *, action="none", target=None, value=No
         requires_confirmation=requires_confirmation,
         reason=reason,
         verification=verification,
+        perception_mode=perception_mode,
+        vision_used=vision_used,
     )
 
 
@@ -66,14 +68,16 @@ async def run_loop_step(req: LoopStepRequest) -> LoopStepResponse:
         screenshot=req.screenshot,
         history_text=format_history(req.history),
     )
-    log.info("[REASON] action=%s target=%s confidence=%.2f done=%s",
-             decision.action, decision.target, decision.confidence, decision.done)
+    pm = {"perception_mode": decision.perception_mode, "vision_used": decision.vision_used}
+    log.info("[REASON] action=%s target=%s confidence=%.2f done=%s perception=%s%s",
+             decision.action, decision.target, decision.confidence, decision.done,
+             decision.perception_mode, " +vision" if decision.vision_used else "")
 
     # --- no safe next action --------------------------------------------- #
     if decision.action == "none":
         return _step(LoopStatus.BLOCKED, step, confidence=decision.confidence,
                      reason=decision.reasoning or "No safe next action found.",
-                     verification=verification)
+                     verification=verification, **pm)
 
     # --- repeated-action detection (Step 4.16) --------------------------- #
     if is_repeated(req.history, decision.action, decision.target, REPEAT_LIMIT):
@@ -82,7 +86,7 @@ async def run_loop_step(req: LoopStepRequest) -> LoopStepResponse:
         return _step(LoopStatus.REPEATED_ACTION, step, confidence=decision.confidence,
                      reason=f"'{decision.action} {decision.target}' was proposed "
                             f"{REPEAT_LIMIT} times in a row - stopping to avoid a loop.",
-                     verification=verification)
+                     verification=verification, **pm)
 
     # --- confidence gate (Step 4.17) ----------------------------------- #
     if decision.confidence < CONFIDENCE_GATE:
@@ -95,7 +99,7 @@ async def run_loop_step(req: LoopStepRequest) -> LoopStepResponse:
                 f"{CONFIDENCE_GATE:.0%} bar for autonomous actions. "
                 f"This goal may not be achievable on this page."
             ),
-            verification=verification,
+            verification=verification, **pm,
         )
 
     # --- consequential-action confirmation (Step 4.18) ---------------- #
@@ -105,9 +109,9 @@ async def run_loop_step(req: LoopStepRequest) -> LoopStepResponse:
         return _step(LoopStatus.NEEDS_CONFIRMATION, step, action=decision.action,
                      target=decision.target, value=decision.value,
                      confidence=decision.confidence, requires_confirmation=True,
-                     reason=f"{risk}. Approve to continue.", verification=verification)
+                     reason=f"{risk}. Approve to continue.", verification=verification, **pm)
 
     # --- normal: execute this action, then the extension observes again -- #
     return _step(LoopStatus.RUNNING, step, action=decision.action, target=decision.target,
                  value=decision.value, confidence=decision.confidence,
-                 reason=decision.reasoning, verification=verification)
+                 reason=decision.reasoning, verification=verification, **pm)

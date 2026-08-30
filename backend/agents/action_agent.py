@@ -30,7 +30,9 @@ USER GOAL:
 CURRENT URL:
 {state.get("url", "")}
 
-PERCEPTION AGENT FINDINGS (JSON):
+PERCEPTION (JSON). "mode" is "structure" (DOM/ARIA) or "vision" (screenshot was
+used because the DOM was ambiguous). If a "vision_target" is present, that
+selector is the visually-identified element for the goal - strongly prefer it.
 {perception}
 
 ACTIONS ALREADY TAKEN THIS TASK (most recent last):
@@ -49,6 +51,8 @@ Allowed actions: click, type, select, scroll, back, none.
 
 Rules:
 - "target" MUST be a selector that appears in the PAGE SUMMARY. Never invent one.
+- If NO element on the page plausibly serves the goal, return action "none" with
+  low confidence. Do NOT pick the closest unrelated element as a fallback.
 - Prefer id selectors and accessible names.
 - Choose ONE step, not the whole plan.
 - Do NOT repeat an action from the history if it clearly had no effect; try

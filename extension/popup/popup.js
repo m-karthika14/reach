@@ -174,11 +174,11 @@ async function sendChat() {
   const page = await sendToTab(tab.id, { type: "GET_PAGE_CONTEXT" });
   if (page?.__error) return chatMsg("meta", "", "Cannot read this page: " + page.__error);
 
+  // Always send a screenshot so the backend can fall back to the Vision Agent
+  // when the DOM is ambiguous (Phase 6). It only *uses* it when routing says so.
   let screenshot = null;
-  if ($("askScreenshot").checked) {
-    const s = await captureScreenshot(tab.windowId);
-    if (s?.success) screenshot = s.dataUrl;
-  }
+  const s = await captureScreenshot(tab.windowId);
+  if (s?.success) screenshot = s.dataUrl;
 
   let r;
   try {
@@ -215,13 +215,20 @@ async function sendChat() {
   }
 
   const a = r.action;
+  if (a && a.perception_mode) {
+    const t = a.timings || {};
+    const ms = a.vision_used
+      ? `structure ${t.structure_ms}ms + vision ${t.vision_ms}ms`
+      : `structure ${t.structure_ms}ms`;
+    chatMsg("meta", "", `perception: ${a.vision_used ? "vision 👁" : "structure"} (${ms})`);
+  }
   if (!a || a.action === "none") return;
 
   if (r.requires_confirmation) {
     chatMsg("meta", "", `pending: ${a.action} ${a.target || ""} — say "yes" to proceed`);
     return;
   }
-  if ((a.confidence ?? 0) < 0.8) {
+  if ((a.confidence ?? 0) < 0.85) {
     chatMsg("meta", "", `not run (confidence ${Math.round((a.confidence ?? 0) * 100)}%)`);
     return;
   }
@@ -406,7 +413,9 @@ function describe(step) {
     `${step.action}` +
     (step.target ? ` ${step.target}` : "") +
     (step.value != null ? ` = ${step.value}` : "") +
-    ` (${Math.round((step.confidence ?? 0) * 100)}%)`
+    ` (${Math.round((step.confidence ?? 0) * 100)}%` +
+    (step.vision_used ? ", vision 👁" : step.perception_mode ? ", structure" : "") +
+    `)`
   );
 }
 
@@ -441,10 +450,8 @@ runTaskBtn.addEventListener("click", async () => {
       const dom = JSON.stringify(page);
 
       let screenshot = null;
-      if ($("askScreenshot").checked) {
-        const s = await captureScreenshot(tab.windowId);
-        if (s?.success) screenshot = s.dataUrl;
-      }
+      const shot = await captureScreenshot(tab.windowId);
+      if (shot?.success) screenshot = shot.dataUrl;
 
       let step;
       try {

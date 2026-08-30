@@ -1,7 +1,7 @@
-# REACH Backend — Phase 5
+# REACH Backend — Phase 6
 
 FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`),
-with **persistent multi-turn sessions in Firestore**.
+persistent multi-turn sessions in Firestore, **Structure + Vision perception routing**.
 
 `main.py` is only the HTTP boundary. Reasoning lives in `agents/`, the
 browser-loop controller in `loop/`, session state in `sessions/`.
@@ -32,7 +32,16 @@ Resolves "it" / "that" / "the second one", corrections ("actually…"), and
 commands (stop / continue / pause / yes / no) from the conversation history +
 on-page candidates.
 
-### Verified locally (live ADK + Firestore)
+### Phase 6 - verified locally (live ADK + Vertex)
+
+| Case | Route | Result |
+| --- | --- | --- |
+| goal "click View Bill", clear `<button>View Bill</button>`, screenshot sent | structure only | `click #view-bill`; **vision skipped** (`vision_used=false`, no `vision_ms`) |
+| goal "open the payment screen", 3 icon buttons all `aria-label="button"`, screenshot sent | structure → **vision** | `[VISION] selected=#icon-pay`; `perception=vision`, `vision_used=true`, `vision_ms≈5000` |
+| same, **no** screenshot | structure only | falls back to structure's best guess |
+| Vision returns a selector not on the page | — | `_match_selector` → rejected, logged, ignored |
+
+### Phase 5 - verified locally (live ADK + Firestore)
 
 | Scenario | Result |
 | --- | --- |
@@ -92,33 +101,49 @@ reach.loop: [VERIFY] success=True reason=Payment History section is now visible
 | Book me a flight to Paris | **blocked** step 1 (no invented selectors, no random clicks) |
 | Pay my electricity bill | **needs_confirmation** on `#pay-button` step 1 |
 
-## Architecture
+## Architecture (Phase 6 routing in `agents/root_agent.py`)
 
 ```
-                       ROOT AGENT  (SequentialAgent, shared session state)
+                 STRUCTURE AGENT  (DOM / ARIA only, fast)
+                 page_type + relevant_elements + confidence + needs_vision
                             |
-              +-------------+-------------+
-              v                           v
-      PERCEPTION AGENT              ACTION AGENT
-   page_type + relevant_elements   click/type/select/scroll/back/none
-              \___________________________/
+                     [ROUTER]  confidence >= 0.85 and not needs_vision ?
+                       /                                        \
+                     yes                                         no  (and a screenshot exists)
+                      |                                           |
+                      |                                  VISION AGENT  (screenshot + candidates)
+                      |                                  selected_selector + meaning + confidence
+                      |                                           |
+                      |                          selector must exist in the real DOM,
+                      |                          else the pick is rejected (hallucination guard)
+                       \_________________________________________/
                             |
-                   gemini._normalize        <- Phase 2 safety layer, kept
+                       ACTION AGENT   (gets perception.mode = structure | vision;
+                                       prefers a vision_target when present)
+                            |
+                   gemini._normalize      <- Phase 2 safety layer, kept
                    (allowed action, no invented selector, confidence)
                             |
-                      AgentResponse
+                      AgentResponse  (+ perception_mode, vision_used, timings)
 
-      VERIFICATION AGENT  (separate turn, after the extension re-inspects)
+      VERIFICATION AGENT  (separate turn, unchanged)
       goal + before + action + after  ->  { success, reason }
 ```
+
+Vision is a **fallback, not the default**: an unambiguous page costs one
+Structure call; only an ambiguous/icon page adds the Vision call. `run_agent`
+logs `[STRUCTURE] confidence=` / `[ROUTER] vision=` / `[VISION] selected=` and
+returns `timings {structure_ms, vision_ms?, action_ms}`.
 
 | Path | Role |
 | --- | --- |
 | `agents/config.py` | ADK→Vertex env wiring, `MODEL = "gemini-3.5-flash"` |
-| `agents/schemas.py` | agent-to-agent typed outputs (`PerceptionResult`, `ActionDecision`, `VerificationResult`) |
-| `agents/perception_agent.py` | LlmAgent, `output_key="perception"` |
-| `agents/action_agent.py` | LlmAgent, `output_key="action"` |
+| `agents/schemas.py` | typed outputs: `StructureResult`, `VisionResult`, `ActionDecision`, `VerificationResult`, `DialogueInterpretation` |
+| `agents/structure_agent.py` | DOM/ARIA-only, `output_key="structure"` (+ `confidence`, `needs_vision`) |
+| `agents/vision_agent.py` | multimodal, `output_key="vision"` - picks a candidate selector from the screenshot |
+| `agents/action_agent.py` | LlmAgent, `output_key="action"` - consumes the merged perception |
 | `agents/verification_agent.py` | LlmAgent, `output_key="verification"` |
+| `agents/dialogue_agent.py` | Phase 5 message interpreter |
 | `agents/root_agent.py` | `SequentialAgent`, ADK `Runner` + `InMemorySessionService`, orchestration logging, `run_agent(...history_text)` / `run_verification()` |
 | `loop/` | Phase 4 controller: `run_loop_step(LoopStepRequest) -> LoopStepResponse` |
 | `sessions/` | Phase 5: `SessionManager`, `run_chat_turn`, Firestore-backed `SessionState` |

@@ -23,6 +23,10 @@ class AgentResponse(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     done: bool = False
     reasoning: Optional[str] = None
+    # Phase 6 perception routing / metrics
+    perception_mode: Optional[str] = None   # "structure" | "vision"
+    vision_used: bool = False
+    timings: Optional[dict] = None          # {structure_ms, vision_ms?, action_ms}
 
 
 class VerifyRequest(BaseModel):
@@ -86,6 +90,8 @@ class LoopStepResponse(BaseModel):
     requires_confirmation: bool = False
     reason: Optional[str] = None
     verification: Optional[dict] = None
+    perception_mode: Optional[str] = None
+    vision_used: bool = False
 
 
 # --------------------------------------------------------------------------- #

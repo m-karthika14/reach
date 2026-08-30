@@ -15,10 +15,27 @@ class RelevantElement(BaseModel):
     why: Optional[str] = None
 
 
-class PerceptionResult(BaseModel):
+class StructureResult(BaseModel):
+    """DOM/ARIA-only understanding of the page (Phase 6, fast path)."""
+
     page_type: str
     summary: str
     relevant_elements: List[RelevantElement] = []
+    # 0..1: how confident the DOM/ARIA alone identifies the right target.
+    confidence: float
+    # True when an element's meaning depends on an icon/image not in the text.
+    needs_vision: bool = False
+    reason: Optional[str] = None
+
+
+class VisionResult(BaseModel):
+    """Screenshot-based disambiguation (Phase 6, fallback path)."""
+
+    # MUST be one of the candidate selectors handed to the Vision Agent.
+    selected_selector: Optional[str] = None
+    meaning: Optional[str] = None
+    confidence: float
+    reason: Optional[str] = None
 
 
 class ActionDecision(BaseModel):
