@@ -24,7 +24,7 @@ class MemoryRetriever:
     def __init__(self) -> None:
         self._store = get_store()
 
-    def retrieve(self, url: str, goal: str) -> dict[str, Any]:
+    def retrieve(self, url: str, goal: str, user_id: str = "demo-user") -> dict[str, Any]:
         domain, page = domain_of(url), page_of(url)
 
         page_rows = self._store.query("page_memory", {"domain": domain})
@@ -40,9 +40,9 @@ class MemoryRetriever:
         )
         page_rows = [r for r in page_rows if float(r.get("confidence", 0)) >= 0.4][:MAX_PAGE]
 
-        corrections = self._store.query("correction_memory", {"domain": domain})
-        corrections.sort(key=lambda r: float(r.get("created_at", 0)), reverse=True)
-        corrections = corrections[:MAX_CORRECTIONS]
+        raw_corr = self._store.query("correction_memory", {"user_id": user_id, "domain": domain})
+        raw_corr.sort(key=lambda r: float(r.get("created_at", 0)), reverse=True)
+        corrections = _aggregate_corrections(raw_corr, page)
 
         preferences = self._store.query("preference_memory")
 
@@ -59,11 +59,7 @@ class MemoryRetriever:
                  "confidence": round(float(r.get("confidence", 0)), 2)}
                 for r in page_rows
             ],
-            "corrections": [
-                {"agent_assumed": r.get("agent_assumed"), "correct_element": r.get("correct_element"),
-                 "user_said": r.get("user_said")}
-                for r in corrections
-            ],
+            "corrections": corrections,
             "preferences": [
                 {"preference": r.get("preference"), "value": r.get("value")} for r in preferences
             ],
@@ -77,6 +73,57 @@ class MemoryRetriever:
                  n, domain, page, len(out["page_memory"]), len(out["corrections"]),
                  len(out["preferences"]))
         return out
+
+
+def _aggregate_corrections(rows: list[dict], page: str) -> list[dict]:
+    """Group by selector; flag conflicting labels; boost repeats. (Steps 10.8, 10.35)"""
+    by_sel: dict[str, list[dict]] = {}
+    for r in rows:
+        by_sel.setdefault(r.get("selector") or r.get("correct_element") or "?", []).append(r)
+
+    out: list[dict] = []
+    for sel, group in by_sel.items():
+        group.sort(key=lambda r: float(r.get("created_at", 0)), reverse=True)
+        labels = {(g.get("correct_label") or "").lower() for g in group if g.get("correct_label")}
+        newest = group[0]
+        conflicting = len(labels) > 1
+        out.append({
+            "selector": sel,
+            "correct_label": newest.get("correct_label", ""),
+            "previous_label": newest.get("agent_prediction", ""),
+            "role": newest.get("role", ""),
+            "accessible_name": newest.get("accessible_name", ""),
+            "element_text": newest.get("element_text", ""),
+            "confidence": round(max(float(g.get("confidence", 0.7)) for g in group), 2),
+            "count": len(group),
+            "verified": any(g.get("verified") for g in group),
+            "conflicting": conflicting,
+            "same_page": newest.get("page") == page,
+        })
+    out.sort(key=lambda c: (c["same_page"], not c["conflicting"], c["confidence"]), reverse=True)
+    return out[:MAX_CORRECTIONS]
+
+
+def match_corrections_to_candidates(corrections: list[dict], candidates: list[dict]) -> dict[str, dict]:
+    """selector -> correction, matched by exact selector or by (role + name + text) signature."""
+    cand_by_sel = {c.get("selector"): c for c in candidates if c.get("selector")}
+    matched: dict[str, dict] = {}
+    for corr in corrections or []:
+        if corr.get("conflicting"):
+            continue  # contradictory user feedback -> don't rank on it (Step 10.8)
+        sel = corr.get("selector")
+        if sel in cand_by_sel:
+            matched[sel] = corr
+            continue
+        sig = (corr.get("role", ""), corr.get("accessible_name", "").lower(), corr.get("element_text", "").lower())
+        if not any(sig):
+            continue
+        for c in candidates:
+            csig = (c.get("role", ""), (c.get("name") or "").lower(), (c.get("text") or "").lower())
+            if csig == sig and c.get("selector"):
+                matched[c["selector"]] = {**corr, "selector": c["selector"], "rematched": True}
+                break
+    return matched
 
 
 def render_memory(mem: dict[str, Any]) -> str:
@@ -93,9 +140,18 @@ def render_memory(mem: dict[str, Any]) -> str:
                 + (f" - {r['description']}" if r.get("description") else "")
             )
     if mem.get("corrections"):
-        lines.append("Past user corrections on this site:")
+        lines.append("Past USER CORRECTIONS on this site (the user explicitly said REACH "
+                     "was wrong - weight these heavily when the goal matches the label):")
         for c in mem["corrections"]:
-            lines.append(f"  - user said {c['user_said']!r}: use {c['correct_element']} not {c['agent_assumed']}")
+            if c.get("conflicting"):
+                lines.append(f"  - {c['selector']}: the user has given CONFLICTING labels "
+                             f"here - do NOT rely on memory, verify visually.")
+            else:
+                lines.append(
+                    f"  - {c['selector']} = '{c['correct_label']}'"
+                    f" (was thought to be '{c['previous_label'] or '?'}';"
+                    f" {'verified, ' if c.get('verified') else ''}conf {c['confidence']}, seen {c['count']}x)"
+                )
     if mem.get("preferences"):
         lines.append("User preferences:")
         for p in mem["preferences"]:

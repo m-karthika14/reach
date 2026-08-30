@@ -1,10 +1,10 @@
-# REACH Backend — Phase 9
+# REACH Backend — Phase 10
 
 FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`),
 Firestore sessions, Structure + Vision + Reconciliation, evidence-based
-verification, and **persistent memory + RAG** — REACH learns site knowledge,
-retrieves it on later visits, and uses it (validated against the live page) to
-act faster. See `memory/README.md`.
+verification, **persistent memory + RAG**, and **correction learning** — when the
+user says REACH was wrong about an element, that becomes persistent knowledge
+that re-ranks candidates in future sessions. See `memory/README.md`.
 
 `main.py` is only the HTTP boundary. Reasoning lives in `agents/`, the
 browser-loop controller in `loop/`, session state in `sessions/`.
@@ -193,6 +193,16 @@ chat:       "always ask before paying" -> set_preference
 | stale memory (`#gone-btn` learned, not on page) | acts on `#view-bill` — **current page wins** |
 | FAILED outcome | `#view-bill` confidence 0.9 → 0.6 (weakened, not strengthened) |
 | "always ask before paying" | `preference_memory.confirmation_before_payment = true`, retrieved next turn |
+
+### Phase 10 - verified locally (live ADK, isolated store)
+
+| Step | Result |
+| --- | --- |
+| session A: "no, #icon-2 is the payment button" | `memory_updated`, correction row `#icon-2 → "payment button"` (strong, conf 0.90) |
+| a **fresh retriever** | sees the correction (persisted, not conversational) |
+| **session B (new SessionManager)**: "where do I pay?" | retrieves correction → `ranking.correction_applied`, `click #icon-2` |
+| `retrieve(..., user_id="user-B")` | no corrections — **user-scoped** |
+| contradictory `#icon-2 → "profile"` added | `conflicting: true` → `correction_applied=false` (never ranked on) |
 
 Vision is a **fallback, not the default**: an unambiguous page costs one
 Structure call; only an ambiguous/icon page adds the Vision call. `run_agent`

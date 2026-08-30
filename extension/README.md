@@ -1,3 +1,13 @@
+# REACH Extension — Phase 10
+
+Correction learning: tell REACH *"no, that's the payment button"* and the chat
+logs `✎ learned: #icon-2 → "payment" (persisted to Firestore)`; the memory panel
+shows it (`✓` once a later action verifies it, `⚠` if you've given conflicting
+labels). In a **New chat** (or after a restart) asking *"where do I pay?"* logs
+`🧠 correction boost/override: #icon-2 → "payment"` and clicks it.
+
+---
+
 # REACH Extension — Phase 9
 
 New **REACH memory** panel — shows what REACH has learned about the current site

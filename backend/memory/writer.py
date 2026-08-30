@@ -64,17 +64,64 @@ class MemoryWriter:
         self._store.set("page_memory", _pm_id(domain, page, selector), existing)
         log.info("[MEMORY] weakened page_memory %s (conf=%.2f, misses=%d)", selector, conf, misses)
 
-    # -- corrections -------------------------------------------------- #
+    # -- corrections (Phase 10) ------------------------------------- #
 
-    def record_correction(self, url: str, user_said: str, agent_assumed: str,
-                          correct_element: str, reason: str = "user correction") -> None:
-        c = CorrectionMemory(
-            domain=domain_of(url), page=page_of(url), user_said=user_said,
-            agent_assumed=agent_assumed or "", correct_element=correct_element, reason=reason,
+    _STRENGTH_CONF = {"weak": 0.6, "normal": 0.78, "strong": 0.9}
+
+    def record_correction(
+        self,
+        url: str,
+        *,
+        selector: str,
+        correct_label: str,
+        agent_prediction: str = "",
+        user_said: str = "",
+        strength: str = "normal",
+        role: str = "",
+        accessible_name: str = "",
+        element_text: str = "",
+        user_id: str = "demo-user",
+    ) -> dict:
+        domain, page = domain_of(url), page_of(url)
+        # repeated CONSISTENT correction -> strengthen; contradictory -> keep both
+        prior = self._store.query(
+            "correction_memory",
+            {"user_id": user_id, "domain": domain, "page": page, "selector": selector},
         )
-        self._store.add("correction_memory", c.model_dump())
-        log.info("[MEMORY] recorded correction on %s: assumed %r -> correct %r",
-                 c.domain, agent_assumed, correct_element)
+        same = [p for p in prior if (p.get("correct_label") or "").lower() == correct_label.lower()]
+        conf = self._STRENGTH_CONF.get(strength, 0.78)
+        if same:
+            conf = min(0.97, conf + 0.08 * len(same))  # consistent repeats -> up
+
+        c = CorrectionMemory(
+            user_id=user_id, domain=domain, page=page, selector=selector,
+            role=role, accessible_name=accessible_name, element_text=element_text,
+            agent_prediction=agent_prediction, correct_label=correct_label,
+            user_said=user_said, strength=strength, confidence=round(conf, 2),
+        )
+        doc_id = self._store.add("correction_memory", c.model_dump(exclude={"agent_assumed", "correct_element"}))
+        log.info("[CORRECTION] persisted %s: %r was %r -> correct %r (strength=%s conf=%.2f%s)",
+                 selector, domain, agent_prediction or "?", correct_label, strength, conf,
+                 ", repeat" if same else "")
+        return {"id": doc_id, "selector": selector, "correct_label": correct_label,
+                "previous_label": agent_prediction, "confidence": round(conf, 2)}
+
+    def mark_correction_verified(self, url: str, selector: str,
+                                 user_id: str = "demo-user") -> None:
+        """A VERIFIED action on this element confirms the user's correction (Step 10.21)."""
+        domain, page = domain_of(url), page_of(url)
+        rows = self._store.query(
+            "correction_memory",
+            {"user_id": user_id, "domain": domain, "page": page, "selector": selector},
+        )
+        for r in rows:
+            if not r.get("_id") or r.get("verified"):
+                continue
+            r["verified"] = True
+            r["confidence"] = min(0.98, float(r.get("confidence", 0.8)) + 0.05)
+            self._store.set("correction_memory", r["_id"], {k: v for k, v in r.items() if k != "_id"})
+            log.info("[CORRECTION] %s -> %r confirmed by VERIFIED action",
+                     selector, r.get("correct_label"))
 
     # -- preferences ----------------------------------------------- #
 

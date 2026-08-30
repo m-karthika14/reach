@@ -32,6 +32,9 @@ class AgentResponse(BaseModel):
     # Phase 9 - memory retrieved for this decision (RAG)
     memory: Optional[dict] = None
     memory_used: bool = False
+    # Phase 10 - correction-aware candidate ranking
+    ranking: Optional[dict] = None
+    correction_applied: bool = False
 
 
 class VerifyRequest(BaseModel):
@@ -135,4 +138,7 @@ class ChatResponse(BaseModel):
     reconciliation: Optional[dict] = None
     memory: Optional[dict] = None       # what RAG retrieved for this turn
     memory_used: bool = False
+    memory_updated: bool = False        # this turn wrote a correction/preference
+    correction: Optional[dict] = None   # {selector, correct_label, previous_label, confidence}
+    ranking: Optional[dict] = None      # correction-aware ranking explanation
     current_step: int = 0

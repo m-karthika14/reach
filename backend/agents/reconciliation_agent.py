@@ -34,8 +34,15 @@ STRUCTURE AGENT SAID (JSON):
 VISION AGENT SAID (JSON):
 {s.get("vision_json", "{{}}")}
 
+REMEMBERED KNOWLEDGE / PAST USER CORRECTIONS for this site:
+{s.get("corrections_text", "(none)")}
+
 ON-PAGE ELEMENTS (real selectors):
 {s.get("candidates_text", "(none)")}
+
+If a past USER CORRECTION says an element means X, treat that as strong evidence
+for X. But if the current screenshot clearly shows something ELSE for that same
+element, that is a CONFLICT - do not act (the page/user may have changed).
 
 Return one status:
 

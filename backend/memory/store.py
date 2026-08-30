@@ -38,10 +38,11 @@ class _InMemory:
 
     def query(self, collection: str, where: Optional[dict] = None) -> list[dict]:
         with self._lock:
-            rows = list(self._data[collection].values())
+            items = list(self._data[collection].items())
+        rows = [dict(v, _id=k) for k, v in items]
         if where:
             rows = [r for r in rows if all(r.get(k) == v for k, v in where.items())]
-        return [dict(r) for r in rows]
+        return rows
 
 
 class _Firestore:

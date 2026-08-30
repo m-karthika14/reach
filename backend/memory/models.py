@@ -24,15 +24,33 @@ class PageMemory(BaseModel):
 
 
 class CorrectionMemory(BaseModel):
-    """A time REACH was wrong and the user corrected it (Step 9.1.2)."""
+    """A time REACH was wrong and the user corrected it (Steps 9.1.2, 10.2, 10.3)."""
 
+    user_id: str = "demo-user"
     domain: str
     page: str = ""
-    user_said: str
-    agent_assumed: str = ""       # what REACH thought (label or selector)
-    correct_element: str          # selector or label the user pointed to
+    selector: str = ""           # element REACH was wrong about
+    # extra signals so the same element is recognisable if the selector changes
+    role: str = ""
+    accessible_name: str = ""
+    element_text: str = ""
+    agent_prediction: str = ""   # what REACH thought it was ("account settings")
+    correct_label: str = ""      # what the user says it is ("payment")
+    user_said: str = ""          # the raw correction message
+    strength: str = "normal"     # weak | normal | strong
+    confidence: float = 0.75
+    verified: bool = False       # a later action on it VERIFIED
     reason: str = "user correction"
     created_at: float = Field(default_factory=time.time)
+
+    # kept for backwards compatibility with Phase 9 readers
+    @property
+    def agent_assumed(self) -> str:  # noqa: D401
+        return self.agent_prediction
+
+    @property
+    def correct_element(self) -> str:
+        return self.selector or self.correct_label
 
 
 class PreferenceMemory(BaseModel):

@@ -59,8 +59,18 @@ Classify the new message:
 - "status_query": the user is asking whether the last action worked
   ("did it work?", "did it go through?", "what happened?"). Set a reply that
   answers from LAST VERIFICATION.
-- "correction": the user is changing the plan ("actually...", "no, do X instead").
-  Put the new objective in resolved_goal and the immediate ask in resolved_request.
+- "correction": EITHER the user is changing the plan ("actually..., do X instead"),
+  OR the user says REACH was WRONG about what an element is
+  ("no, that's the payment button", "that icon is profile, not settings").
+  For the second kind, ALSO fill "correction":
+    selector        = the element REACH was talking about. Find it from the last
+                      assistant message, PENDING CONFIRMATION, the last action, or
+                      the ON-PAGE CANDIDATES. null only if truly unknown.
+    previous_label  = what REACH thought it was (from the conversation)
+    correct_label   = the short label the user gives ("payment", "profile", ...)
+    strength        = "strong" for "no, that's..." / "you're wrong" / "I already told you";
+                      "weak" for "I think that might be..."; else "normal".
+  Put the corrected label in resolved_request too so REACH can act on it.
 - "new_goal": a fresh task unrelated to the current one.
 - "reference": same goal, refers to something with a pronoun/ordinal
   ("open it", "the second one", "that button"). Expand it in resolved_request.
@@ -82,7 +92,7 @@ Rules for resolution:
   re-check it - naming it does not bypass the safety gate.
 - Always set a short, natural "reply" (one sentence).
 
-Return JSON: intent, command, resolved_goal, resolved_request, reply.
+Return JSON: intent, command, resolved_goal, resolved_request, correction, reply.
 """
 
 

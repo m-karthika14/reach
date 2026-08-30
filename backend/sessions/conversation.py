@@ -55,6 +55,32 @@ _PREF_CONFIRM_OFF = re.compile(
 _PREF_LANG = re.compile(r"\b(?:prefer|use|set|switch to)\b.{0,20}\b(english|kannada|hindi|tamil|telugu)\b", re.I)
 
 
+def _referenced_selector(state) -> str:
+    """Which element was REACH just talking about? (for attaching a correction)"""
+    if state.pending_confirmation and state.pending_confirmation.get("target"):
+        return state.pending_confirmation["target"]
+    if state.last_reconciliation and state.last_reconciliation.get("target"):
+        return state.last_reconciliation["target"]
+    if state.previous_actions:
+        return state.previous_actions[-1].get("target", "") or ""
+    # last assistant message may name a #selector
+    for turn in reversed(state.conversation_history):
+        if turn.role == "assistant":
+            m = re.search(r"#[\w-]+", turn.content or "")
+            if m:
+                return m.group(0)
+            break
+    return ""
+
+
+def _candidate_meta(state, selector: str) -> dict:
+    for c in state.current_candidates or []:
+        if c.get("selector") == selector:
+            return {"role": c.get("kind", "button"), "name": c.get("name", ""), "text": c.get("name", ""),
+                    "agent_prediction": ""}
+    return {"role": "", "name": "", "text": "", "agent_prediction": ""}
+
+
 def _maybe_preference(message: str) -> tuple[str, object] | None:
     """Detect a durable preference statement (Step 9.8), else None."""
     if _PREF_CONFIRM_OFF.search(message):
@@ -105,6 +131,10 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                             url=req.url, action=req.last_executed, verification=v,
                             element_label=(state.user_goal or "")[:40],
                         )
+                        # Phase 10: a VERIFIED action on a corrected element confirms it.
+                        if v.get("status") == "VERIFIED" and req.last_executed.get("target"):
+                            _mem.writer().mark_correction_verified(
+                                req.url, req.last_executed["target"])
                     except Exception:  # noqa: BLE001
                         log.exception("[chat] memory write failed")
                 except Exception:  # noqa: BLE001
@@ -147,8 +177,37 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
         action: AgentResponse | None = None
         requires_confirmation = False
         reply = interp.reply or "Okay."
+        memory_updated = False
+        correction_out: dict | None = None
+        ranking_out: dict | None = None
 
         lv = state.last_verification or {}
+
+        # Phase 10: an explicit "you were wrong about X" correction -> persist it.
+        if interp.intent == "correction" and interp.correction:
+            cd = interp.correction
+            selector = cd.selector or _referenced_selector(state)
+            cand = _candidate_meta(state, selector)
+            if selector:
+                try:
+                    correction_out = _mem.writer().record_correction(
+                        url=req.url, selector=selector,
+                        correct_label=cd.correct_label or (interp.resolved_request or "").strip(),
+                        agent_prediction=cd.previous_label or cand.get("agent_prediction", ""),
+                        user_said=req.message, strength=cd.strength or "normal",
+                        role=cand.get("role", ""), accessible_name=cand.get("name", ""),
+                        element_text=cand.get("text", ""),
+                    )
+                    memory_updated = True
+                    reply = (
+                        f"Got it - I'll remember that {selector} is "
+                        f"\"{correction_out['correct_label']}\" (not "
+                        f"\"{correction_out.get('previous_label') or 'what I said'}\")."
+                    )
+                    # re-retrieve so THIS turn already benefits from the correction
+                    turn_memory = _mem.retriever().retrieve(req.url, state.user_goal or req.message)
+                except Exception:  # noqa: BLE001
+                    log.exception("[chat] correction write failed")
 
         # 4. explicit commands (Steps 5.24-5.26, 5.40)
         if interp.intent == "status_query":
@@ -202,24 +261,7 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
             reply = f"Okay, {_phrase(action)}."
         else:
             # 5. correction / new goal / reference / continue
-
-            # Phase 9: a correction that names a concrete element -> remember it.
-            if interp.intent == "correction" and interp.resolved_request:
-                m = re.search(r"#[\w-]+", interp.resolved_request)
-                if m and (state.last_reconciliation or state.previous_actions):
-                    assumed = ""
-                    if state.last_reconciliation:
-                        assumed = state.last_reconciliation.get("structure_interpretation") or ""
-                    elif state.previous_actions:
-                        assumed = state.previous_actions[-1].get("target", "")
-                    try:
-                        _mem.writer().record_correction(
-                            url=req.url, user_said=req.message,
-                            agent_assumed=assumed, correct_element=m.group(0),
-                        )
-                    except Exception:  # noqa: BLE001
-                        log.exception("[chat] correction write failed")
-
+            #    (an explicit element correction was already persisted above)
             if interp.resolved_goal and interp.intent in ("correction", "new_goal"):
                 # the sub-task changed: drop stale task context, keep the dialogue
                 state.pending_confirmation = None
@@ -246,12 +288,14 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                     memory=turn_memory,
                 )
                 memory_used = resp.memory_used
+                ranking_out = resp.ranking
                 state.perception_mode = resp.perception_mode
                 state.last_reconciliation = resp.reconciliation
-                log.info("[CHAT] reason -> %s %s conf=%.2f perception=%s%s%s",
+                log.info("[CHAT] reason -> %s %s conf=%.2f perception=%s%s%s%s",
                          resp.action, resp.target, resp.confidence,
                          resp.perception_mode, " +vision" if resp.vision_used else "",
-                         f" reconcile={resp.reconciliation['status']}" if resp.reconciliation else "")
+                         f" reconcile={resp.reconciliation['status']}" if resp.reconciliation else "",
+                         " +correction" if resp.correction_applied else "")
 
                 rec = resp.reconciliation
                 if rec and rec.get("status") in ("CONFLICT", "UNKNOWN"):
@@ -305,5 +349,8 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
             reconciliation=state.last_reconciliation,
             memory=turn_memory,
             memory_used=memory_used,
+            memory_updated=memory_updated,
+            correction=correction_out,
+            ranking=ranking_out,
             current_step=state.current_step,
         )

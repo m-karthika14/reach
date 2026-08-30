@@ -18,6 +18,7 @@ the logging, and the timing/vision-usage metrics.
 from __future__ import annotations
 
 import base64
+import re
 import json
 import logging
 import time
@@ -117,7 +118,7 @@ def _candidates_from_dom(dom: str, limit: int = 20) -> list[dict]:
     if not isinstance(page, dict):
         return []
     out, seen = [], set()
-    for key in ("buttons", "links"):
+    for key, default_role in (("buttons", "button"), ("links", "link")):
         for el in page.get(key, []) or []:
             if not isinstance(el, dict):
                 continue
@@ -127,7 +128,12 @@ def _candidates_from_dom(dom: str, limit: int = 20) -> list[dict]:
             name = (el.get("text") or el.get("accessibleName") or el.get("ariaLabel") or "").strip()
             if sel and sel not in seen:
                 seen.add(sel)
-                out.append({"selector": sel, "name": name or "(no label)"})
+                out.append({
+                    "selector": sel,
+                    "name": name or "(no label)",
+                    "role": el.get("role") or default_role,
+                    "text": (el.get("text") or "").strip(),
+                })
     return out[:limit]
 
 
@@ -238,11 +244,12 @@ async def run_agent(
             else:
                 perception["vision_note"] = "Vision could not visually match any candidate."
 
-            # -- RECONCILIATION (Phase 7) ------------------------------ #
+            # -- RECONCILIATION (Phase 7 + 10: correction as evidence) --- #
             r_state = dict(base_state)
             r_state["structure_json"] = json.dumps(structure, default=str)
             r_state["vision_json"] = json.dumps(vision, default=str)
             r_state["candidates_text"] = cand_text
+            r_state["corrections_text"] = memory_text
             t_r = time.perf_counter()
             r_final = await _run(reconciliation_agent, r_state, goal, "RECONCILIATION")
             timings["reconciliation_ms"] = round((time.perf_counter() - t_r) * 1000)
@@ -287,6 +294,12 @@ async def run_agent(
         }
         log.info("[ACTION] raw %s", action)
 
+        # -- CORRECTION-AWARE RANKING (Phase 10, Steps 10.12-10.14) ----- #
+        ranking = _apply_correction_ranking(
+            action, retrieved.get("corrections", []),
+            _candidates_from_dom(dom), known_selectors, goal,
+        )
+
     except RuntimeError:
         raise
     except Exception:
@@ -300,12 +313,75 @@ async def run_agent(
     response.reconciliation = reconciliation
     response.memory = retrieved
     response.memory_used = bool(retrieved.get("page_memory") or retrieved.get("corrections"))
-    log.info("[ROOT] -> action=%s target=%s confidence=%.2f (%s%s%s%s)",
+    response.ranking = ranking
+    response.correction_applied = bool(ranking and ranking.get("correction_applied"))
+    log.info("[ROOT] -> action=%s target=%s confidence=%.2f (%s%s%s%s%s)",
              response.action, response.target, response.confidence,
              perception_mode, ", vision" if vision_used else "",
              ", reconciled AGREE" if reconciliation else "",
-             ", memory" if response.memory_used else "")
+             ", memory" if response.memory_used else "",
+             ", correction" if response.correction_applied else "")
     return response
+
+
+def _label_matches_goal(label: str, goal: str) -> bool:
+    if not label:
+        return False
+    lt = {w for w in re.split(r"[^a-z0-9]+", label.lower()) if len(w) > 2}
+    gt = {w for w in re.split(r"[^a-z0-9]+", goal.lower()) if len(w) > 2}
+    return bool(lt & gt) or label.lower() in goal.lower()
+
+
+def _apply_correction_ranking(action: dict, corrections: list[dict], candidates: list[dict],
+                              known: set[str], goal: str) -> Optional[dict]:
+    """Boost / override the Action Agent's target using persisted user corrections.
+    Deterministic and explainable; result still passes _normalize + verification."""
+    matched = _mem.match_corrections_to_candidates(corrections, candidates)
+    if not matched:
+        return None
+
+    # corrected elements whose label is relevant to the goal and that exist now
+    hits = [
+        (sel, c) for sel, c in matched.items()
+        if sel in known and _label_matches_goal(c.get("correct_label", ""), goal)
+    ]
+    if not hits:
+        return {"correction_applied": False, "candidates_considered": list(matched)}
+    hits.sort(key=lambda x: float(x[1].get("confidence", 0)), reverse=True)
+    corrected_sel, corr = hits[0]
+
+    base_target = action.get("target")
+    base_conf = float(action.get("confidence", 0) or 0)
+    explain: dict[str, Any] = {
+        "correction_applied": False,
+        "corrected_selector": corrected_sel,
+        "correct_label": corr.get("correct_label"),
+        "base_target": base_target,
+        "base_confidence": round(base_conf, 2),
+    }
+
+    if base_target == corrected_sel:
+        action["confidence"] = max(base_conf, 0.95)
+        action["reasoning"] = (action.get("reasoning") or "") + \
+            f" [correction boost: user previously identified {corrected_sel} as '{corr.get('correct_label')}']"
+        explain.update(correction_applied=True, effect="boost", final_confidence=action["confidence"])
+        log.info("[RANKING] %s boosted -> conf %.2f (matches user correction '%s')",
+                 corrected_sel, action["confidence"], corr.get("correct_label"))
+    elif action.get("action") in ("click", "none") and (base_conf < 0.9 or not base_target):
+        action["action"] = "click"
+        action["target"] = corrected_sel
+        action["value"] = None
+        action["confidence"] = 0.92
+        action["reasoning"] = (
+            f"User previously corrected {corrected_sel} to mean '{corr.get('correct_label')}', "
+            f"which matches the goal; choosing it over the model's pick {base_target!r}."
+        )
+        explain.update(correction_applied=True, effect="override", final_confidence=0.92)
+        log.info("[RANKING] override: %s -> %s (user correction '%s' beats model pick, base conf %.2f)",
+                 base_target, corrected_sel, corr.get("correct_label"), base_conf)
+    else:
+        explain["effect"] = "none (model already confident on a different element)"
+    return explain
 
 
 _VALID_VERIFY_STATUS = {"VERIFIED", "FAILED", "AMBIGUOUS", "BLOCKED", "NEEDS_CONFIRMATION"}

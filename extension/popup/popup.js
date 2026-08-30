@@ -171,7 +171,15 @@ function renderMemory(mem) {
   }
   if (mem.corrections?.length) {
     html += `<div class="mem-group">user corrections</div>`;
-    for (const c of mem.corrections) html += `<div>use <code>${esc(c.correct_element)}</code> not <code>${esc(c.agent_assumed || "?")}</code></div>`;
+    for (const c of mem.corrections) {
+      if (c.conflicting) {
+        html += `<div>⚠ <code>${esc(c.selector)}</code> — conflicting feedback, not trusted</div>`;
+      } else {
+        html += `<div>${c.verified ? '<span class="mem-verified">✓</span> ' : "· "}<code>${esc(c.selector)}</code> → "${esc(c.correct_label)}"` +
+          (c.previous_label ? ` (was "${esc(c.previous_label)}")` : "") +
+          ` ${Math.round((c.confidence || 0) * 100)}%${c.count > 1 ? ` ×${c.count}` : ""}</div>`;
+      }
+    }
   }
   if (mem.preferences?.length) {
     html += `<div class="mem-group">preferences</div>`;
@@ -249,7 +257,17 @@ async function sendChat() {
 
   chatMsg("reach", "REACH", r.message);
   if (r.memory) renderMemory(r.memory);
-  if (r.memory_used) chatMsg("meta", "", "🧠 used remembered knowledge of this site");
+  if (r.memory_updated && r.correction) {
+    chatMsg("meta", "", `✎ learned: ${r.correction.selector} → "${r.correction.correct_label}" (persisted to Firestore)`);
+  }
+  if (r.ranking && r.ranking.correction_applied) {
+    const rk = r.ranking;
+    chatMsg("meta", "",
+      `🧠 correction ${rk.effect}: ${rk.corrected_selector} → "${rk.correct_label}"` +
+      (rk.effect === "override" ? ` (chosen over ${rk.base_target || "model pick"})` : ` (${Math.round((rk.final_confidence || 0) * 100)}%)`));
+  } else if (r.memory_used) {
+    chatMsg("meta", "", "🧠 used remembered knowledge of this site");
+  }
   if (r.reconciliation && r.reconciliation.status) {
     const rc = r.reconciliation;
     chatMsg("meta", "",

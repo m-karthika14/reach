@@ -74,8 +74,17 @@ class VerificationResult(BaseModel):
     retry_allowed: bool = False
 
 
+class CorrectionDetail(BaseModel):
+    """The structured content of an explicit user correction (Phase 10)."""
+
+    selector: Optional[str] = None       # which element REACH was wrong about
+    previous_label: Optional[str] = None # what REACH thought it was
+    correct_label: Optional[str] = None  # what the user says it is
+    strength: Literal["weak", "normal", "strong"] = "normal"
+
+
 class DialogueInterpretation(BaseModel):
-    """How the new user message relates to the ongoing session (Phase 5)."""
+    """How the new user message relates to the ongoing session (Phase 5/10)."""
 
     intent: Literal["command", "new_goal", "reference", "correction", "smalltalk", "status_query"]
     command: Optional[
@@ -85,5 +94,8 @@ class DialogueInterpretation(BaseModel):
     resolved_goal: Optional[str] = None
     # What to do right now, references expanded (e.g. "click the 'Download Bill' button").
     resolved_request: Optional[str] = None
+    # Set ONLY when intent == "correction" and the user explicitly says REACH was
+    # wrong about an element ("no, that's the payment button").
+    correction: Optional[CorrectionDetail] = None
     # A short, natural assistant reply for this turn.
     reply: Optional[str] = None
