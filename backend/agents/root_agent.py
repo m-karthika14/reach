@@ -64,6 +64,12 @@ async def _run(agent, state: dict[str, Any], user_text: str, tag: str) -> dict[s
     return dict(session.state) if session else {}
 
 
+# Public alias so other modules (e.g. the dialogue layer) can run a single
+# LlmAgent with a given initial state without duplicating the runner setup.
+async def run_llm(agent, state: dict, user_text: str, tag: str = "LLM") -> dict:
+    return await _run(agent, state, user_text, tag)
+
+
 def _as_dict(value: Any) -> Optional[dict[str, Any]]:
     if isinstance(value, dict):
         return value

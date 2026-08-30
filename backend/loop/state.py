@@ -27,5 +27,8 @@ TERMINAL = {
 }
 
 MAX_STEPS_DEFAULT = 8
-CONFIDENCE_GATE = 0.80
-REPEAT_LIMIT = 3  # 3rd identical (action, target) proposal -> stop
+# The autonomous loop is stricter than the single-step /agent gate (0.80):
+# a confident agent returns ~0.95-1.0; ~0.80 means it is guessing, and in a
+# loop that becomes a wander. Stop instead.
+CONFIDENCE_GATE = 0.85
+REPEAT_LIMIT = 3  # same (action, target) proposed a 3rd time overall -> stop

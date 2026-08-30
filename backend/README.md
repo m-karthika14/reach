@@ -1,16 +1,46 @@
-# REACH Backend — Phase 4
+# REACH Backend — Phase 5
 
-FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`).
+FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`),
+with **persistent multi-turn sessions in Firestore**.
 
-`main.py` is only the HTTP boundary. Reasoning/orchestration lives in `agents/`;
-the browser-loop controller lives in `loop/`.
+`main.py` is only the HTTP boundary. Reasoning lives in `agents/`, the
+browser-loop controller in `loop/`, session state in `sessions/`.
 
 ```
+POST /chat         session_id + message + observation  ->  stateful turn  ->  reply + action
+POST /sessions     ->  { session_id }                        (explicit start; /chat also auto-creates)
+GET  /sessions/{id} ->  full stored SessionState
 POST /agent        goal + page context      ->  Root Agent [ perception -> action ]  ->  one action
 POST /agent/loop   goal + observation + history ->  verify -> reason -> safety gates  ->  next step
 POST /verify       before + action + after   ->  Verification Agent                   ->  {success, reason}
 GET  /health
 ```
+
+## Phase 5 - stateful multi-turn dialogue
+
+`sessions/` (Firestore db `reach-memory`, collection `sessions`):
+
+| File | Role |
+| --- | --- |
+| `models.py` | `SessionState` - session_id, user_goal, current_task, current_step, current_page, previous_actions, current_candidates, pending_confirmation, verification_status, conversation_history, status |
+| `firestore_store.py` | `FirestoreSessionStore` (real) + `InMemorySessionStore` fallback; `get_store()` tries Firestore once, downgrades with a log line if unreachable |
+| `manager.py` | load / save / per-session `asyncio.Lock` / `reconcile_page` (fresh observation wins) / candidate extraction / history trim (keep 12 turns) |
+| `conversation.py` | `run_chat_turn`: reconcile page → fold in last execution + verify it → **Dialogue Agent** interprets → command / correction / reference / continue → Root Agent reasons → risk gate → persist |
+
+`agents/dialogue_agent.py` — `DialogueInterpretation { intent, command, resolved_goal, resolved_request, reply }`.
+Resolves "it" / "that" / "the second one", corrections ("actually…"), and
+commands (stop / continue / pause / yes / no) from the conversation history +
+on-page candidates.
+
+### Verified locally (live ADK + Firestore)
+
+| Scenario | Result |
+| --- | --- |
+| "Open my electricity bill" → "open it" → "actually show payment history" → "stop" → "continue" | goal remembered; "it"→bill; correction switches task; stop→`cancelled`; continue→resumes→`completed` |
+| candidates on page → "click the second one" | resolves to `#payment-details` |
+| "pay my electricity bill" → "yes" | `waiting_confirmation` → approves stored action → executes `#pay-button` |
+| session A "open it" while session B exists | resolves to A's bill, not B's goal (isolated) |
+| create session, **new `SessionManager`** (simulated restart), "open it" | goal + history reloaded from Firestore, "it" still resolves |
 
 ## Phase 4 - the browser action loop
 
@@ -24,17 +54,22 @@ POST /agent/loop
         success                          -> status = completed, done = true
   3. Root Agent (perception -> action) with the action history
   4. safety gates:
-        action == none                   -> status = blocked
-        (action,target) x3 in a row      -> status = repeated_action
-        confidence < 0.80                -> status = low_confidence
-        consequential token in target    -> status = needs_confirmation (requires_confirmation)
-        otherwise                        -> status = running  (extension executes, then loops)
+        action == none                    -> status = blocked
+        (action,target) proposed a 3rd time (anywhere in history) -> status = repeated_action
+        confidence < 0.85                 -> status = low_confidence
+        consequential token in target     -> status = needs_confirmation (requires_confirmation)
+        otherwise                         -> status = running  (extension executes, then loops)
 ```
 
 `loop/state.py` status vocabulary · `loop/history.py` compact history + repeat
-detection · `loop/safety.py` consequential-action classifier (`pay`, `buy`,
-`delete`, `transfer`, … as whole tokens of the target/value, never the goal) ·
+detection (total occurrences, not just consecutive; `scroll`/`back` exempt) ·
+`loop/safety.py` consequential-action classifier (`pay`, `buy`, `delete`,
+`transfer`, … as whole tokens of the target/value, never the goal) ·
 `loop/controller.py` the step above.
+
+The loop confidence bar (0.85) is deliberately stricter than the single-step
+`/agent` gate (0.80): a confident agent returns ~0.95-1.0, so ~0.80 in a loop
+means guessing - stop rather than wander.
 
 Loop log (demo-ready):
 
@@ -86,6 +121,7 @@ reach.loop: [VERIFY] success=True reason=Payment History section is now visible
 | `agents/verification_agent.py` | LlmAgent, `output_key="verification"` |
 | `agents/root_agent.py` | `SequentialAgent`, ADK `Runner` + `InMemorySessionService`, orchestration logging, `run_agent(...history_text)` / `run_verification()` |
 | `loop/` | Phase 4 controller: `run_loop_step(LoopStepRequest) -> LoopStepResponse` |
+| `sessions/` | Phase 5: `SessionManager`, `run_chat_turn`, Firestore-backed `SessionState` |
 | `tools/page_context.py` | `summarize_page_context` FunctionTool |
 | `tools/action_tools.py` | `click_element` / `type_text` / `select_option` / `scroll_page` / `go_back` → structured action requests |
 | `tools/verification_tools.py` | `compare_page_states` FunctionTool |
@@ -132,13 +168,25 @@ reach.adk: [VERIFICATION] -> {'success': True, 'reason': "URL changed to .../bil
 
 ## Deploy
 
-`requirements.txt` now pins `google-adk==2.8.0`. After the local flow works:
+`requirements.txt` pins `google-adk==2.8.0` + `google-cloud-firestore==2.29.0`.
 
 ```powershell
 .\deploy.ps1   # gcloud run deploy --source . --region asia-south1 --min-instances 0
 ```
 
-The Cloud Run runtime service account needs `roles/aiplatform.user` (granted in Phase 2).
+Cloud Run runtime service account needs:
+- `roles/aiplatform.user` (Phase 2)
+- `roles/datastore.user` (Phase 5 - Firestore sessions):
+  ```powershell
+  gcloud projects add-iam-policy-binding reach-agent-507107 `
+    --member "serviceAccount:$NUM-compute@developer.gserviceaccount.com" `
+    --role "roles/datastore.user"
+  ```
+  If missing, `/chat` still works but sessions fall back to per-instance memory
+  (lost on restart / across instances) - the `/` response shows
+  `session_backend: memory` vs `firestore`.
+
+Set `REACH_SESSION_BACKEND=memory` to force the in-memory store (e.g. offline dev).
 
 ## Note
 

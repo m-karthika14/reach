@@ -17,15 +17,20 @@ from loop import run_loop_step
 from models import (
     AgentRequest,
     AgentResponse,
+    ChatRequest,
+    ChatResponse,
     LoopStepRequest,
     LoopStepResponse,
     VerifyRequest,
     VerifyResponse,
 )
+from sessions import SessionManager, new_session_id, run_chat_turn
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="REACH", version="0.4.0")
+app = FastAPI(title="REACH", version="0.5.0")
+
+_sessions = SessionManager()
 
 # Extension calls this from a chrome-extension:// origin (and file:// pages).
 app.add_middleware(
@@ -47,7 +52,8 @@ def root():
         "service": "REACH",
         "version": app.version,
         "framework": "google-adk",
-        "endpoints": ["/health", "/agent", "/agent/loop", "/verify"],
+        "session_backend": _sessions.backend_kind,
+        "endpoints": ["/health", "/agent", "/agent/loop", "/verify", "/chat", "/sessions"],
     }
 
 
@@ -71,6 +77,30 @@ async def agent_loop(request: LoopStepRequest) -> LoopStepResponse:
     """One iteration of the browser action loop: verify -> reason -> gate."""
     try:
         return await run_loop_step(request)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
+
+
+@app.post("/sessions")
+async def create_session():
+    """Explicitly start a conversation (Step 5.17). The extension may also just
+    call /chat with session_id=null and use the id that comes back."""
+    return {"session_id": new_session_id()}
+
+
+@app.get("/sessions/{session_id}")
+async def get_session(session_id: str):
+    state = await _sessions.load(session_id)
+    return state.model_dump()
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    """One stateful conversational turn (Phase 5)."""
+    try:
+        return await run_chat_turn(_sessions, request)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc:  # noqa: BLE001

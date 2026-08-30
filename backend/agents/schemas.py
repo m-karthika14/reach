@@ -33,3 +33,18 @@ class ActionDecision(BaseModel):
 class VerificationResult(BaseModel):
     success: bool
     reason: str
+
+
+class DialogueInterpretation(BaseModel):
+    """How the new user message relates to the ongoing session (Phase 5)."""
+
+    intent: Literal["command", "new_goal", "reference", "correction", "smalltalk"]
+    command: Optional[
+        Literal["stop", "continue", "pause", "yes", "no"]
+    ] = None
+    # Overall objective with pronouns/ordinals expanded (e.g. "it" -> "the electricity bill").
+    resolved_goal: Optional[str] = None
+    # What to do right now, references expanded (e.g. "click the 'Download Bill' button").
+    resolved_request: Optional[str] = None
+    # A short, natural assistant reply for this turn.
+    reply: Optional[str] = None

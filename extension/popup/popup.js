@@ -126,6 +126,126 @@ function showAgent(kind, verdict, detailHtml) {
 
 const ACTION_MAP = { click: "CLICK", type: "TYPE", select: "SELECT", scroll: "SCROLL", back: "BACK" };
 
+// ---- Conversation (Phase 5: stateful multi-turn dialogue) -----------------
+
+const chatLog = $("chatLog");
+const chatInput = $("chatInput");
+const sessionInfo = $("sessionInfo");
+let chatSessionId = null;
+let chatPrevDom = null;      // observation before the last executed action
+let chatLastExecuted = null; // {action,target,value,success} to report next turn
+
+chrome.storage.local.get(["reach_session_id"], (saved) => {
+  chatSessionId = saved.reach_session_id || null;
+  renderSessionInfo();
+});
+
+function renderSessionInfo() {
+  sessionInfo.textContent = chatSessionId ? `session: ${chatSessionId}` : "no session yet";
+}
+
+function chatMsg(kind, who, text) {
+  const el = document.createElement("div");
+  el.className = "chat-msg " + kind;
+  el.innerHTML = who ? `<span class="who">${who}:</span> ` : "";
+  el.appendChild(document.createTextNode(text));
+  chatLog.appendChild(el);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+$("newChat").addEventListener("click", () => {
+  chatSessionId = null;
+  chatPrevDom = null;
+  chatLastExecuted = null;
+  chrome.storage.local.remove("reach_session_id");
+  chatLog.innerHTML = "";
+  renderSessionInfo();
+});
+
+async function sendChat() {
+  const message = chatInput.value.trim();
+  if (!message) return;
+  const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
+  chatInput.value = "";
+  chatMsg("user", "You", message);
+
+  const tab = await activeTab();
+  if (!tab?.id) return chatMsg("meta", "", "No active tab.");
+  const page = await sendToTab(tab.id, { type: "GET_PAGE_CONTEXT" });
+  if (page?.__error) return chatMsg("meta", "", "Cannot read this page: " + page.__error);
+
+  let screenshot = null;
+  if ($("askScreenshot").checked) {
+    const s = await captureScreenshot(tab.windowId);
+    if (s?.success) screenshot = s.dataUrl;
+  }
+
+  let r;
+  try {
+    const resp = await fetch(backend + "/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: chatSessionId,
+        message,
+        url: page.url,
+        dom: JSON.stringify(page),
+        screenshot,
+        prev_dom: chatPrevDom,
+        last_executed: chatLastExecuted
+      })
+    });
+    if (!resp.ok) return chatMsg("meta", "", `Backend ${resp.status}: ${await resp.text()}`);
+    r = await resp.json();
+  } catch (e) {
+    return chatMsg("meta", "", "Could not reach the backend: " + e);
+  }
+
+  // clear the "last executed" report now that it's been sent
+  chatPrevDom = null;
+  chatLastExecuted = null;
+
+  chatSessionId = r.session_id;
+  chrome.storage.local.set({ reach_session_id: chatSessionId });
+  renderSessionInfo();
+
+  chatMsg("reach", "REACH", r.message);
+  if (r.verification_status) {
+    chatMsg("meta", "", `verify: ${r.verification_status.success ? "✓" : "✗"} ${r.verification_status.reason || ""}`);
+  }
+
+  const a = r.action;
+  if (!a || a.action === "none") return;
+
+  if (r.requires_confirmation) {
+    chatMsg("meta", "", `pending: ${a.action} ${a.target || ""} — say "yes" to proceed`);
+    return;
+  }
+  if ((a.confidence ?? 0) < 0.8) {
+    chatMsg("meta", "", `not run (confidence ${Math.round((a.confidence ?? 0) * 100)}%)`);
+    return;
+  }
+
+  const msg = { type: "EXECUTE_ACTION", action: ACTION_MAP[a.action] };
+  if (a.target) msg.selector = a.target;
+  if (a.value != null) msg.value = a.value;
+  if (a.action === "scroll") msg.amount = 600;
+
+  const result = await sendToTab(tab.id, msg);
+  if (result && result.success) {
+    chatMsg("meta", "", `↳ executed ${a.action} ${a.target || ""}`);
+    chatPrevDom = JSON.stringify(page);
+    chatLastExecuted = { action: a.action, target: a.target, value: a.value, success: true };
+  } else {
+    chatMsg("meta", "", "↳ execution failed: " + JSON.stringify(result));
+  }
+}
+
+$("chatSend").addEventListener("click", sendChat);
+chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendChat();
+});
+
 $("ask").addEventListener("click", async () => {
   const goal = goalInput.value.trim();
   if (!goal) return showAgent("err", "Enter a goal first.");

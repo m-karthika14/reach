@@ -1,9 +1,13 @@
-# REACH Extension — Phase 4
+# REACH Extension — Phase 5
 
-Browser observation + action layer (Phase 1) plus a goal box. The extension is
-the **loop runtime**: it observes the page, calls the backend for the next step,
-executes it, re-observes, and repeats until the backend says `completed` (or a
-safety gate / the Stop button ends it).
+Browser observation + action layer (Phase 1) plus:
+- **Conversation** panel — stateful multi-turn chat with REACH (`/chat`). The
+  extension stores `reach_session_id` in `chrome.storage.local`; every turn
+  sends it plus the fresh page observation and a report of what it executed
+  last turn. REACH resolves "it" / "the second one" / "actually…" / "stop" /
+  "continue" / "yes" against the persisted session.
+- **Autonomous task** panel — the Phase 4 observe→reason→act→verify loop
+  (`Run task` / `Stop`) and the Phase 3 `Single step` (`/agent`).
 
 ## Load
 
@@ -23,6 +27,20 @@ safety gate / the Stop button ends it).
 | `content/actions.js` | CLICK / TYPE / SELECT / SCROLL / BACK |
 | `content/content.js` | `getPageContext()` + message router |
 | `popup/*` , `styles/popup.css` | Inspect button + action test form |
+
+## Conversation (Phase 5)
+
+1. Backend running (local or Cloud Run URL in the **backend** box).
+2. Open `demo-site/index.html`, open the popup.
+3. Chat, one line at a time:
+   ```
+   You: open my electricity bill        REACH: Opening it.            [runs click #view-bill]
+   You: show the payment history        REACH: Showing payment history [runs click #payment-details]
+   You: stop                            REACH: Okay, I've stopped.
+   You: continue                        REACH: (resumes from stored state)
+   ```
+4. **New chat** drops the session id and starts fresh.
+5. Consequential actions reply *"say 'yes' to go ahead"* and wait.
 
 ## Run task (Phase 4 autonomous loop)
 
@@ -44,8 +62,10 @@ safety gate / the Stop button ends it).
 
 `Single step` keeps the Phase 3 one-shot behaviour (`/agent` + `/verify`).
 
-Loop caps: client step limit 8, backend `max_steps` 8, confidence gate 0.80,
-3× repeated `(action,target)` stops, invented selectors refused.
+Loop caps: client step limit 8, backend `max_steps` 8, loop confidence gate 0.85
+(stricter than the 0.80 single-step gate), 3rd repeat of any `(action,target)`
+stops, invented selectors refused. An impossible goal (e.g. "book a flight" on
+the billing demo) stops as `blocked` / `low_confidence`, not random clicks.
 
 Backend URL and last goal are remembered in `chrome.storage.local`.
 `storage` permission added to the manifest for this.

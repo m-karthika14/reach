@@ -86,3 +86,32 @@ class LoopStepResponse(BaseModel):
     requires_confirmation: bool = False
     reason: Optional[str] = None
     verification: Optional[dict] = None
+
+
+# --------------------------------------------------------------------------- #
+# Phase 5 - stateful multi-turn dialogue
+# --------------------------------------------------------------------------- #
+
+
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+    url: str
+    dom: str
+    screenshot: Optional[str] = None
+    # Report of what the extension executed since the previous turn (Step 5.31).
+    last_executed: Optional[dict] = None
+    # The observation captured just before last_executed - used to verify it.
+    prev_dom: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    message: str                      # assistant's natural-language reply
+    status: str
+    action: Optional[AgentResponse] = None   # a browser action for the extension to run
+    requires_confirmation: bool = False
+    candidates: List[dict] = []
+    pending_confirmation: Optional[dict] = None
+    verification_status: Optional[dict] = None
+    current_step: int = 0

@@ -9,14 +9,10 @@
 <body>
   <header>
     <h1>REACH</h1>
-    <span class="tag">Phase 4</span>
+    <span class="tag">Phase 5</span>
   </header>
 
   <section class="panel">
-    <h2>Ask REACH</h2>
-    <div class="row">
-      <input type="text" id="goal" placeholder="What do you want to do? e.g. Open my electricity bill" />
-    </div>
     <div class="row">
       <input type="text" id="backend" placeholder="http://127.0.0.1:8080" />
       <label class="check">
@@ -24,15 +20,33 @@
         screenshot
       </label>
     </div>
+  </section>
+
+  <section class="panel">
+    <div class="row space-between">
+      <h2>Conversation</h2>
+      <button id="newChat" class="tiny">New chat</button>
+    </div>
+    <div id="chatLog" class="chat-log"></div>
+    <div class="row">
+      <input type="text" id="chatInput" placeholder="Talk to REACH…  (try: open my electricity bill)" />
+      <button id="chatSend" class="primary">Send</button>
+    </div>
+    <div id="sessionInfo" class="hint"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Autonomous task</h2>
+    <div class="row">
+      <input type="text" id="goal" placeholder="Goal for the multi-step loop" />
+    </div>
     <div class="row">
       <button id="runTask" class="primary">Run task</button>
       <button id="stopTask" hidden>Stop</button>
       <button id="ask">Single step</button>
-    </div>
-    <div class="row">
       <label class="check">
         <input type="checkbox" id="autoRun" checked />
-        auto-run single step if confident
+        auto-run
       </label>
     </div>
     <div id="loopLog" class="loop-log" hidden></div>

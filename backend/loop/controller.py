@@ -86,9 +86,17 @@ async def run_loop_step(req: LoopStepRequest) -> LoopStepResponse:
 
     # --- confidence gate (Step 4.17) ----------------------------------- #
     if decision.confidence < CONFIDENCE_GATE:
-        return _step(LoopStatus.LOW_CONFIDENCE, step, confidence=decision.confidence,
-                     reason=decision.reasoning or f"Confidence below {CONFIDENCE_GATE:.0%}.",
-                     verification=verification)
+        best = f"{decision.action} {decision.target or ''}".strip()
+        return _step(
+            LoopStatus.LOW_CONFIDENCE, step, confidence=decision.confidence,
+            reason=(
+                f'Stopping: the best next step ("{best}") is only '
+                f"{decision.confidence:.0%} confident - below the "
+                f"{CONFIDENCE_GATE:.0%} bar for autonomous actions. "
+                f"This goal may not be achievable on this page."
+            ),
+            verification=verification,
+        )
 
     # --- consequential-action confirmation (Step 4.18) ---------------- #
     risk = classify_risk(req.goal, decision.action, decision.target, decision.value)

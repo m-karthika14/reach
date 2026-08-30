@@ -5,6 +5,7 @@ Public surface used by main.py:
     run_verification(goal, before_dom, action, after_dom, after_url=None) -> dict
 """
 
-from .root_agent import run_agent, run_verification
+from .dialogue_agent import resolve_message
+from .root_agent import run_agent, run_llm, run_verification
 
-__all__ = ["run_agent", "run_verification"]
+__all__ = ["run_agent", "run_verification", "run_llm", "resolve_message"]

@@ -25,11 +25,19 @@ def format_history(items: Iterable[Any]) -> str:
 
 
 def is_repeated(history: Iterable[Any], action: str, target: Any, limit: int = REPEAT_LIMIT) -> bool:
-    """True if proposing (action, target) now would make it the `limit`-th in a row."""
+    """True if (action, target) already appears `limit - 1` times anywhere in the
+    history, i.e. proposing it now would be the `limit`-th attempt overall.
+
+    Counts total occurrences, not just a consecutive run - a loop that alternates
+    between two dead-end elements is still a loop.
+    """
     proposed = _key(action, target)
-    run = 0
+    if proposed[0] in ("scroll", "back", "none"):
+        return False  # these legitimately recur
+    seen = 0
     for it in history:
         it_action = getattr(it, "action", None) if not isinstance(it, dict) else it.get("action")
         it_target = getattr(it, "target", None) if not isinstance(it, dict) else it.get("target")
-        run = run + 1 if _key(it_action, it_target) == proposed else 0
-    return run >= (limit - 1)
+        if _key(it_action, it_target) == proposed:
+            seen += 1
+    return seen >= (limit - 1)

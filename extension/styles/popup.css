@@ -114,6 +114,34 @@ select {
   border-radius: 6px;
 }
 
+.row.space-between { justify-content: space-between; }
+.row.space-between h2 { margin: 0; }
+
+button.tiny {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.chat-log {
+  margin: 6px 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 13px;
+}
+.chat-log:empty::before {
+  content: "Ask REACH to do something on this page. It remembers the conversation.";
+  color: #94a3b8;
+}
+.chat-msg { margin: 4px 0; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+.chat-msg .who { font-weight: 600; }
+.chat-msg.user .who { color: #2563eb; }
+.chat-msg.reach .who { color: #047857; }
+.chat-msg.meta { color: #64748b; font-size: 12px; }
+
 .loop-log {
   margin-top: 6px;
   padding: 8px;
