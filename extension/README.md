@@ -1,9 +1,14 @@
-# REACH Extension — Phase 6
+# REACH Extension — Phase 7
 
-The extension now **always sends a screenshot** with chat and loop requests so
-the backend can fall back to the Vision Agent on ambiguous/icon pages (Phase 6).
-The chat log shows the perception route per turn:
-`perception: structure (structure 4400ms)` or `perception: vision 👁 (structure 4400ms + vision 5000ms)`.
+The extension **always sends a screenshot** with chat and loop requests so the
+backend can fall back to the Vision Agent (Phase 6) and then the Reconciliation
+Agent (Phase 7). The chat log shows the route and, when Vision ran, the
+reconciliation verdict:
+`reconciliation: CONFLICT — structure "Cancel" vs vision "Pay Now"`.
+On CONFLICT/UNKNOWN the chat enters `waiting_clarification` and REACH asks which
+element you meant (naming it still re-runs the safety check).
+
+Try it: open `demo-site/conflict-test.html`, say *"pay my electricity bill"*.
 
 Browser observation + action layer (Phase 1) plus:
 - **Conversation** panel — stateful multi-turn chat with REACH (`/chat`). The

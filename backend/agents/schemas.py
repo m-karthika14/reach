@@ -38,6 +38,17 @@ class VisionResult(BaseModel):
     reason: Optional[str] = None
 
 
+class ReconciliationResult(BaseModel):
+    """Do Structure and Vision agree about the target? (Phase 7)"""
+
+    status: Literal["AGREE", "CONFLICT", "UNKNOWN"]
+    target: Optional[str] = None
+    structure_interpretation: Optional[str] = None
+    vision_interpretation: Optional[str] = None
+    confidence: float
+    reason: Optional[str] = None
+
+
 class ActionDecision(BaseModel):
     action: Literal["click", "type", "select", "scroll", "back", "none"]
     target: Optional[str] = None

@@ -1,7 +1,8 @@
-# REACH Backend — Phase 6
+# REACH Backend — Phase 7
 
 FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`),
-persistent multi-turn sessions in Firestore, **Structure + Vision perception routing**.
+persistent Firestore sessions, Structure + Vision routing, and a
+**Reconciliation** gate that fails closed when the two perceptions disagree.
 
 `main.py` is only the HTTP boundary. Reasoning lives in `agents/`, the
 browser-loop controller in `loop/`, session state in `sessions/`.
@@ -32,14 +33,18 @@ Resolves "it" / "that" / "the second one", corrections ("actually…"), and
 commands (stop / continue / pause / yes / no) from the conversation history +
 on-page candidates.
 
-### Phase 6 - verified locally (live ADK + Vertex)
+### Phase 6/7 - verified locally (live ADK + Vertex)
 
 | Case | Route | Result |
 | --- | --- | --- |
-| goal "click View Bill", clear `<button>View Bill</button>`, screenshot sent | structure only | `click #view-bill`; **vision skipped** (`vision_used=false`, no `vision_ms`) |
-| goal "open the payment screen", 3 icon buttons all `aria-label="button"`, screenshot sent | structure → **vision** | `[VISION] selected=#icon-pay`; `perception=vision`, `vision_used=true`, `vision_ms≈5000` |
-| same, **no** screenshot | structure only | falls back to structure's best guess |
-| Vision returns a selector not on the page | — | `_match_selector` → rejected, logged, ignored |
+| "click View Bill", clear `<button>`, screenshot sent | structure only | `click #view-bill`; **vision + reconciliation skipped** (fast path) |
+| "open the payment screen", 3 icon buttons `aria-label="button"` | structure → vision → **reconciliation AGREE** | `click #icon-pay` (ambiguous ≠ contradictory) |
+| unlabeled buttons + vague goal + blank screenshot | structure → vision → **reconciliation UNKNOWN** | `[SAFETY] action blocked`; `action=none` |
+| structural contradiction (text "Pay Now" / aria-label "Cancel") | structure → vision → **non-AGREE** | Action Agent **not reached**; `action=none`, message "I won't activate it" |
+| Vision returns off-page selector | — | `_match_selector` rejects it |
+
+`conflict-test.html` (aria-label "Cancel", pseudo-element renders "Pay Now") drives
+a real **CONFLICT** in Chrome, where the screenshot actually shows "Pay Now".
 
 ### Phase 5 - verified locally (live ADK + Firestore)
 
@@ -116,6 +121,13 @@ reach.loop: [VERIFY] success=True reason=Payment History section is now visible
                       |                                           |
                       |                          selector must exist in the real DOM,
                       |                          else the pick is rejected (hallucination guard)
+                      |                                           |
+                      |                                  RECONCILIATION AGENT   (Phase 7)
+                      |                                  structure vs vision -> AGREE / CONFLICT / UNKNOWN
+                      |                                           |
+                      |                      deterministic gate in Python:
+                      |                      status != AGREE  ->  action = none, Action Agent NOT reached
+                      |                      ("I found conflicting information ... I won't activate it.")
                        \_________________________________________/
                             |
                        ACTION AGENT   (gets perception.mode = structure | vision;
@@ -141,6 +153,7 @@ returns `timings {structure_ms, vision_ms?, action_ms}`.
 | `agents/schemas.py` | typed outputs: `StructureResult`, `VisionResult`, `ActionDecision`, `VerificationResult`, `DialogueInterpretation` |
 | `agents/structure_agent.py` | DOM/ARIA-only, `output_key="structure"` (+ `confidence`, `needs_vision`) |
 | `agents/vision_agent.py` | multimodal, `output_key="vision"` - picks a candidate selector from the screenshot |
+| `agents/reconciliation_agent.py` | `output_key="reconciliation"` - AGREE / CONFLICT / UNKNOWN (runs only when Vision ran) |
 | `agents/action_agent.py` | LlmAgent, `output_key="action"` - consumes the merged perception |
 | `agents/verification_agent.py` | LlmAgent, `output_key="verification"` |
 | `agents/dialogue_agent.py` | Phase 5 message interpreter |

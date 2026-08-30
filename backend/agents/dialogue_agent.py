@@ -39,6 +39,10 @@ ON-PAGE CANDIDATES (name -> selector), for resolving "the first/second one" etc.
 PENDING CONFIRMATION (an action waiting for the user to approve):
 {s.get("pending_confirmation") or "(none)"}
 
+LAST RECONCILIATION (if a CONFLICT/UNKNOWN is pending, REACH stopped and is
+waiting for the user to say which element they meant):
+{s.get("last_reconciliation") or "(none)"}
+
 CONVERSATION SO FAR:
 {s.get("history_text") or "(no prior turns)"}
 
@@ -65,6 +69,10 @@ Rules for resolution:
 - resolved_request should name a concrete thing when possible, e.g.
   "click the 'Download Bill' button (#download-bill)".
 - "yes"/"ok" with a PENDING CONFIRMATION present -> command = "yes".
+- If a LAST RECONCILIATION conflict is pending and the user is now naming which
+  element they meant ("it's the Pay Now button", "use the green one"), set
+  intent="reference" and put that element in resolved_request. REACH will still
+  re-check it - naming it does not bypass the safety gate.
 - Always set a short, natural "reply" (one sentence).
 
 Return JSON: intent, command, resolved_goal, resolved_request, reply.

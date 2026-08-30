@@ -210,6 +210,14 @@ async function sendChat() {
   renderSessionInfo();
 
   chatMsg("reach", "REACH", r.message);
+  if (r.reconciliation && r.reconciliation.status) {
+    const rc = r.reconciliation;
+    chatMsg("meta", "",
+      `reconciliation: ${rc.status}` +
+      (rc.status !== "AGREE"
+        ? ` — structure "${rc.structure_interpretation || "?"}" vs vision "${rc.vision_interpretation || "?"}"`
+        : ""));
+  }
   if (r.verification_status) {
     chatMsg("meta", "", `verify: ${r.verification_status.success ? "✓" : "✗"} ${r.verification_status.reason || ""}`);
   }
@@ -415,6 +423,7 @@ function describe(step) {
     (step.value != null ? ` = ${step.value}` : "") +
     ` (${Math.round((step.confidence ?? 0) * 100)}%` +
     (step.vision_used ? ", vision 👁" : step.perception_mode ? ", structure" : "") +
+    (step.reconciliation ? `, reconcile ${step.reconciliation.status}` : "") +
     `)`
   );
 }

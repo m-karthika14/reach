@@ -16,7 +16,8 @@ log = logging.getLogger("reach.loop")
 
 def _step(status: LoopStatus, step: int, *, action="none", target=None, value=None,
           confidence=0.0, done=False, requires_confirmation=False, reason=None,
-          verification=None, perception_mode=None, vision_used=False) -> LoopStepResponse:
+          verification=None, perception_mode=None, vision_used=False,
+          reconciliation=None) -> LoopStepResponse:
     return LoopStepResponse(
         status=status.value,
         done=done,
@@ -30,6 +31,7 @@ def _step(status: LoopStatus, step: int, *, action="none", target=None, value=No
         verification=verification,
         perception_mode=perception_mode,
         vision_used=vision_used,
+        reconciliation=reconciliation,
     )
 
 
@@ -68,12 +70,17 @@ async def run_loop_step(req: LoopStepRequest) -> LoopStepResponse:
         screenshot=req.screenshot,
         history_text=format_history(req.history),
     )
-    pm = {"perception_mode": decision.perception_mode, "vision_used": decision.vision_used}
-    log.info("[REASON] action=%s target=%s confidence=%.2f done=%s perception=%s%s",
+    pm = {
+        "perception_mode": decision.perception_mode,
+        "vision_used": decision.vision_used,
+        "reconciliation": decision.reconciliation,
+    }
+    log.info("[REASON] action=%s target=%s confidence=%.2f done=%s perception=%s%s%s",
              decision.action, decision.target, decision.confidence, decision.done,
-             decision.perception_mode, " +vision" if decision.vision_used else "")
+             decision.perception_mode, " +vision" if decision.vision_used else "",
+             f" reconcile={decision.reconciliation['status']}" if decision.reconciliation else "")
 
-    # --- no safe next action --------------------------------------------- #
+    # --- no safe next action (includes a reconciliation CONFLICT/UNKNOWN) -- #
     if decision.action == "none":
         return _step(LoopStatus.BLOCKED, step, confidence=decision.confidence,
                      reason=decision.reasoning or "No safe next action found.",

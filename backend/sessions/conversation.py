@@ -69,6 +69,7 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
             "candidates_text": manager.candidates_text(state),
             "history_text": manager.history_text(state),
             "pending_confirmation": state.pending_confirmation,
+            "last_reconciliation": state.last_reconciliation,
         }
         interp = await resolve_message(ctx, req.message)
         log.info("[CHAT] intent=%s command=%s goal=%r request=%r",
@@ -122,11 +123,21 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                     history_text=manager.actions_text(state),
                 )
                 state.perception_mode = resp.perception_mode
-                log.info("[CHAT] reason -> %s %s conf=%.2f perception=%s%s",
+                state.last_reconciliation = resp.reconciliation
+                log.info("[CHAT] reason -> %s %s conf=%.2f perception=%s%s%s",
                          resp.action, resp.target, resp.confidence,
-                         resp.perception_mode, " +vision" if resp.vision_used else "")
+                         resp.perception_mode, " +vision" if resp.vision_used else "",
+                         f" reconcile={resp.reconciliation['status']}" if resp.reconciliation else "")
 
-                if resp.action == "none":
+                rec = resp.reconciliation
+                if rec and rec.get("status") in ("CONFLICT", "UNKNOWN"):
+                    # Phase 7: Structure and Vision disagree -> stop and ask.
+                    state.status = "waiting_clarification"
+                    reply = resp.reasoning or (
+                        "I found conflicting information about that element, so I won't activate it. "
+                        "Which one did you mean?"
+                    )
+                elif resp.action == "none":
                     state.status = "completed" if resp.done else "blocked"
                     reply = resp.reasoning or (
                         "That looks done." if resp.done
@@ -165,5 +176,6 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
             candidates=state.current_candidates,
             pending_confirmation=state.pending_confirmation,
             verification_status=state.verification_status,
+            reconciliation=state.last_reconciliation,
             current_step=state.current_step,
         )

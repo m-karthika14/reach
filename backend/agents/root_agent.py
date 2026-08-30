@@ -33,6 +33,7 @@ from models import AgentResponse
 
 from .action_agent import action_agent
 from .config import APP_NAME, USER_ID, ensure_project
+from .reconciliation_agent import reconciliation_agent
 from .structure_agent import structure_agent
 from .verification_agent import verification_agent
 from .vision_agent import vision_agent
@@ -158,6 +159,7 @@ async def run_agent(
     timings: dict[str, float] = {}
     perception_mode = "structure"
     vision_used = False
+    reconciliation: Optional[dict[str, Any]] = None
 
     try:
         # -- STRUCTURE (fast path) --------------------------------------- #
@@ -220,6 +222,43 @@ async def run_agent(
             else:
                 perception["vision_note"] = "Vision could not visually match any candidate."
 
+            # -- RECONCILIATION (Phase 7) ------------------------------ #
+            r_state = dict(base_state)
+            r_state["structure_json"] = json.dumps(structure, default=str)
+            r_state["vision_json"] = json.dumps(vision, default=str)
+            r_state["candidates_text"] = cand_text
+            t_r = time.perf_counter()
+            r_final = await _run(reconciliation_agent, r_state, goal, "RECONCILIATION")
+            timings["reconciliation_ms"] = round((time.perf_counter() - t_r) * 1000)
+            reconciliation = _as_dict(r_final.get("reconciliation")) or {
+                "status": "UNKNOWN", "confidence": 0.0,
+                "reason": "Reconciliation Agent produced no usable output.",
+            }
+            log.info("[RECONCILIATION] %s  structure=%r vision=%r  reason=%s",
+                     reconciliation.get("status"),
+                     reconciliation.get("structure_interpretation"),
+                     reconciliation.get("vision_interpretation"),
+                     reconciliation.get("reason"))
+
+            # Deterministic safety gate: anything but AGREE -> do NOT act.
+            if reconciliation.get("status") != "AGREE":
+                log.warning("[SAFETY] action blocked by reconciliation (%s)", reconciliation.get("status"))
+                msg = (
+                    "I found conflicting information about this element, so I won't activate it."
+                    if reconciliation.get("status") == "CONFLICT"
+                    else "I couldn't confidently determine which element matches your request, so I won't act."
+                )
+                blocked = _g._normalize(
+                    {"action": "none", "confidence": 0.0,
+                     "reasoning": f"{msg} ({reconciliation.get('reason', '')})"},
+                    known_selectors,
+                )
+                blocked.perception_mode = "reconciliation"
+                blocked.vision_used = True
+                blocked.timings = timings
+                blocked.reconciliation = reconciliation
+                return blocked
+
         # -- ACTION -------------------------------------------------- #
         a_state = dict(base_state)
         a_state["perception"] = perception
@@ -242,9 +281,11 @@ async def run_agent(
     response.perception_mode = perception_mode
     response.vision_used = vision_used
     response.timings = timings
-    log.info("[ROOT] -> action=%s target=%s confidence=%.2f (%s%s)",
+    response.reconciliation = reconciliation
+    log.info("[ROOT] -> action=%s target=%s confidence=%.2f (%s%s%s)",
              response.action, response.target, response.confidence,
-             perception_mode, ", vision" if vision_used else "")
+             perception_mode, ", vision" if vision_used else "",
+             ", reconciled AGREE" if reconciliation else "")
     return response
 
 

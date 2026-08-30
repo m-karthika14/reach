@@ -24,9 +24,11 @@ class AgentResponse(BaseModel):
     done: bool = False
     reasoning: Optional[str] = None
     # Phase 6 perception routing / metrics
-    perception_mode: Optional[str] = None   # "structure" | "vision"
+    perception_mode: Optional[str] = None   # "structure" | "vision" | "reconciliation"
     vision_used: bool = False
-    timings: Optional[dict] = None          # {structure_ms, vision_ms?, action_ms}
+    timings: Optional[dict] = None          # {structure_ms, vision_ms?, reconciliation_ms?, action_ms}
+    # Phase 7 - Structure vs Vision reconciliation (present only when Vision ran)
+    reconciliation: Optional[dict] = None   # {status: AGREE|CONFLICT|UNKNOWN, ...}
 
 
 class VerifyRequest(BaseModel):
@@ -92,6 +94,7 @@ class LoopStepResponse(BaseModel):
     verification: Optional[dict] = None
     perception_mode: Optional[str] = None
     vision_used: bool = False
+    reconciliation: Optional[dict] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -120,4 +123,5 @@ class ChatResponse(BaseModel):
     candidates: List[dict] = []
     pending_confirmation: Optional[dict] = None
     verification_status: Optional[dict] = None
+    reconciliation: Optional[dict] = None
     current_step: int = 0
