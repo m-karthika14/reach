@@ -5,6 +5,29 @@
 
 const $ = (id) => document.getElementById(id);
 
+// Resilient wrapper: if chrome.storage is unavailable (e.g. the extension was
+// not fully reloaded after a manifest/permission change), fall back to an
+// in-memory map so the rest of the popup still works.
+const storageLocal = (() => {
+  try {
+    if (chrome && chrome.storage && chrome.storage.local) return chrome.storage.local;
+  } catch (e) { /* noop */ }
+  console.warn("chrome.storage.local unavailable - using in-memory fallback. Reload the extension.");
+  const mem = {};
+  return {
+    get: (keys, cb) => {
+      const out = {};
+      (Array.isArray(keys) ? keys : [keys]).forEach((k) => { if (k in mem) out[k] = mem[k]; });
+      cb && cb(out);
+    },
+    set: (obj, cb) => { Object.assign(mem, obj); cb && cb(); },
+    remove: (keys, cb) => {
+      (Array.isArray(keys) ? keys : [keys]).forEach((k) => delete mem[k]);
+      cb && cb();
+    }
+  };
+})();
+
 const output = $("output");
 const thumbWrap = $("thumbWrap");
 const thumb = $("thumb");
@@ -106,15 +129,15 @@ const goalInput = $("goal");
 const agentResult = $("agentResult");
 
 // Restore saved backend URL + goal.
-chrome.storage.local.get(["backend", "goal"], (saved) => {
+storageLocal.get(["backend", "goal"], (saved) => {
   backendInput.value = saved.backend || DEFAULT_BACKEND;
   if (saved.goal) goalInput.value = saved.goal;
 });
 backendInput.addEventListener("change", () =>
-  chrome.storage.local.set({ backend: backendInput.value.trim() })
+  storageLocal.set({ backend: backendInput.value.trim() })
 );
 goalInput.addEventListener("change", () =>
-  chrome.storage.local.set({ goal: goalInput.value.trim() })
+  storageLocal.set({ goal: goalInput.value.trim() })
 );
 
 function showAgent(kind, verdict, detailHtml) {
@@ -135,7 +158,7 @@ let chatSessionId = null;
 let chatPrevDom = null;      // observation before the last executed action
 let chatLastExecuted = null; // {action,target,value,success} to report next turn
 
-chrome.storage.local.get(["reach_session_id"], (saved) => {
+storageLocal.get(["reach_session_id"], (saved) => {
   chatSessionId = saved.reach_session_id || null;
   renderSessionInfo();
 });
@@ -194,10 +217,10 @@ for (const [id, field] of Object.entries(PREF_FIELDS)) {
   $(id).addEventListener("change", () => patchPreference(field, $(id).value));
 }
 userIdInput.addEventListener("change", () => {
-  chrome.storage.local.set({ reach_user_id: currentUserId() });
+  storageLocal.set({ reach_user_id: currentUserId() });
   loadPreferences();
 });
-chrome.storage.local.get(["reach_user_id"], (s) => {
+storageLocal.get(["reach_user_id"], (s) => {
   if (s.reach_user_id) userIdInput.value = s.reach_user_id;
   loadPreferences();
 });
@@ -255,7 +278,7 @@ $("newChat").addEventListener("click", () => {
   chatSessionId = null;
   chatPrevDom = null;
   chatLastExecuted = null;
-  chrome.storage.local.remove("reach_session_id");
+  storageLocal.remove("reach_session_id");
   chatLog.innerHTML = "";
   renderSessionInfo();
 });
@@ -321,7 +344,7 @@ async function submitMessage(message) {
   chatLastExecuted = null;
 
   chatSessionId = r.session_id;
-  chrome.storage.local.set({ reach_session_id: chatSessionId });
+  storageLocal.set({ reach_session_id: chatSessionId });
   renderSessionInfo();
 
   chatMsg("reach", "REACH", r.message);
@@ -482,14 +505,15 @@ function startListening(forConfirm = false) {
 
   recognition.onerror = (e) => {
     clearTimeout(listenTimer);
-    const msg =
-      e.error === "not-allowed" || e.error === "service-not-allowed"
-        ? "Microphone access is blocked. Enable it in Chrome site settings for this extension, then retry."
-        : e.error === "no-speech"
-        ? "I didn't hear anything."
-        : "Voice error: " + e.error + ".";
+    const blocked = e.error === "not-allowed" || e.error === "service-not-allowed";
+    const msg = blocked
+      ? "Microphone access isn't granted. Click “microphone setup” below to allow it in a tab (once)."
+      : e.error === "no-speech"
+      ? "I didn't hear anything."
+      : "Voice error: " + e.error + ".";
     setVoiceState("error", msg);
-    speak(msg);
+    if (blocked) openMicSetup();
+    speak(blocked ? "Microphone access is not granted. Please allow it and retry." : msg);
   };
 
   recognition.onend = async () => {
@@ -550,15 +574,24 @@ async function handleReply(r) {
   }
 }
 
+function openMicSetup() {
+  try {
+    chrome.tabs.create({ url: chrome.runtime.getURL("permission/permission.html") });
+  } catch (e) {
+    window.open(chrome.runtime.getURL("permission/permission.html"), "_blank");
+  }
+}
+$("micSetup").addEventListener("click", (e) => { e.preventDefault(); openMicSetup(); });
+
 voiceBtn.addEventListener("click", () => {
   if (voiceState === "listening" || voiceState === "speaking") stopVoice();
   else startListening(false);
 });
 
 // Alt+R: the service worker set a fresh flag just before opening this popup.
-chrome.storage.local.get(["reach_voice_pending"], (s) => {
+storageLocal.get(["reach_voice_pending"], (s) => {
   if (s.reach_voice_pending && Date.now() - s.reach_voice_pending < 5000) {
-    chrome.storage.local.remove("reach_voice_pending");
+    storageLocal.remove("reach_voice_pending");
     if (SR) startListening(false);
     return;
   }
@@ -570,7 +603,7 @@ $("ask").addEventListener("click", async () => {
   if (!goal) return showAgent("err", "Enter a goal first.");
 
   const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
-  chrome.storage.local.set({ goal, backend });
+  storageLocal.set({ goal, backend });
 
   showAgent("hold", "Thinking…", "");
 
@@ -736,7 +769,7 @@ runTaskBtn.addEventListener("click", async () => {
   const goal = goalInput.value.trim();
   if (!goal) return;
   const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
-  chrome.storage.local.set({ goal, backend });
+  storageLocal.set({ goal, backend });
 
   agentResult.hidden = true;
   loopLog.hidden = false;
