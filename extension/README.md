@@ -1,9 +1,9 @@
-# REACH Extension — Phase 3
+# REACH Extension — Phase 4
 
-Browser observation + action layer (Phase 1) **plus** a goal box that calls the
-backend. As of Phase 3 the backend is a Google ADK agent team
-(`/agent` = perception → action), and after the extension runs the action it
-re-inspects the page and calls `/verify` (Verification Agent).
+Browser observation + action layer (Phase 1) plus a goal box. The extension is
+the **loop runtime**: it observes the page, calls the backend for the next step,
+executes it, re-observes, and repeats until the backend says `completed` (or a
+safety gate / the Stop button ends it).
 
 ## Load
 
@@ -24,15 +24,28 @@ re-inspects the page and calls `/verify` (Verification Agent).
 | `content/content.js` | `getPageContext()` + message router |
 | `popup/*` , `styles/popup.css` | Inspect button + action test form |
 
-## Ask REACH (Phase 2)
+## Run task (Phase 4 autonomous loop)
 
-1. Start the backend (`backend/README.md`) at `http://127.0.0.1:8080`.
+1. Start the backend (`backend/README.md`) or point the **backend** box at the
+   Cloud Run URL.
 2. Open `demo-site/index.html`, open the popup.
-3. Type a goal (e.g. *Open my electricity bill*) → **Ask REACH**.
-4. The popup shows `action / target / confidence / reasoning`. If
-   `confidence >= 0.80` and **auto-run** is checked, it executes via the Phase 1
-   engine, the demo page's status line updates, then the popup re-inspects and
-   calls `/verify` — showing `Verified: … achieved the goal` or `Could not verify`.
+3. Type a goal, e.g. *Open my electricity bill and show the payment details*.
+4. **Run task** → the step log fills in live:
+   ```
+   Goal: Open my electricity bill and show the payment details
+   Step 1/8 · running — click #view-bill (100%)
+   ↳ executed click
+   Step 2/8 · running — click #payment-details (100%)
+   ↳ executed click
+   ✅ Step 3/8 · completed — Payment History section is now visible
+   ```
+5. **Stop** halts after the current step. Consequential actions (e.g. `#pay-button`)
+   pause with **Approve / Cancel**.
+
+`Single step` keeps the Phase 3 one-shot behaviour (`/agent` + `/verify`).
+
+Loop caps: client step limit 8, backend `max_steps` 8, confidence gate 0.80,
+3× repeated `(action,target)` stops, invented selectors refused.
 
 Backend URL and last goal are remembered in `chrome.storage.local`.
 `storage` permission added to the manifest for this.

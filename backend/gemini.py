@@ -217,6 +217,8 @@ def _normalize(data: dict[str, Any], known_selectors: set[str]) -> AgentResponse
     reasoning = data.get("reasoning")
     reasoning = str(reasoning) if reasoning is not None else None
 
+    done = bool(data.get("done", False))
+
     # Guardrail: element actions need a target that actually exists on the page.
     if action in _ELEMENT_ACTIONS:
         if not target:
@@ -241,5 +243,6 @@ def _normalize(data: dict[str, Any], known_selectors: set[str]) -> AgentResponse
         target=target,
         value=value,
         confidence=confidence,
+        done=done,
         reasoning=reasoning,
     )

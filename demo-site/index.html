@@ -56,6 +56,17 @@
       <tr><td>Status</td><td>Unpaid</td></tr>
     </table>
     <button id="download-bill">Download PDF</button>
+    <button id="payment-details" class="secondary">Payment details</button>
+  </div>
+
+  <div class="card" id="payment-history" hidden>
+    <h2>Payment History</h2>
+    <table>
+      <tr><td>Jul 2026</td><td>&#8377;1,180.00 &middot; Paid</td></tr>
+      <tr><td>Jun 2026</td><td>&#8377;1,090.00 &middot; Paid</td></tr>
+      <tr><td>May 2026</td><td>&#8377;1,305.00 &middot; Paid</td></tr>
+    </table>
+    <p>Autopay: <strong>Off</strong> &nbsp;&middot;&nbsp; Preferred method: UPI</p>
   </div>
 
   <div class="card">
@@ -76,6 +87,12 @@
       report("Electricity bill opened");
     });
     document.getElementById("download-bill").addEventListener("click", () => report("Bill PDF downloaded"));
+    document.getElementById("payment-details").addEventListener("click", () => {
+      const ph = document.getElementById("payment-history");
+      ph.hidden = false;
+      ph.scrollIntoView({ behavior: "smooth", block: "start" });
+      report("Payment details opened");
+    });
     document.getElementById("bottom-button").addEventListener("click", () => report("Bottom Button clicked"));
     document.getElementById("submit-btn").addEventListener("click", () => {
       const email = document.getElementById("email").value;

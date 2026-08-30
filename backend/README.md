@@ -1,14 +1,61 @@
-# REACH Backend — Phase 3
+# REACH Backend — Phase 4
 
 FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`).
 
-`main.py` is only the HTTP boundary. All reasoning/orchestration lives in `agents/`.
+`main.py` is only the HTTP boundary. Reasoning/orchestration lives in `agents/`;
+the browser-loop controller lives in `loop/`.
 
 ```
-POST /agent    goal + page context   ->  Root Agent [ perception -> action ]  ->  one action
-POST /verify   before + action + after ->  Verification Agent                  ->  {success, reason}
+POST /agent        goal + page context      ->  Root Agent [ perception -> action ]  ->  one action
+POST /agent/loop   goal + observation + history ->  verify -> reason -> safety gates  ->  next step
+POST /verify       before + action + after   ->  Verification Agent                   ->  {success, reason}
 GET  /health
 ```
+
+## Phase 4 - the browser action loop
+
+The loop *iteration* runs in the **extension** (it owns Chrome). The backend
+does one reasoning step per call:
+
+```
+POST /agent/loop
+  1. if history >= max_steps            -> status = max_steps_reached
+  2. if last_action + prev_dom present  -> Verification Agent(before -> after)
+        success                          -> status = completed, done = true
+  3. Root Agent (perception -> action) with the action history
+  4. safety gates:
+        action == none                   -> status = blocked
+        (action,target) x3 in a row      -> status = repeated_action
+        confidence < 0.80                -> status = low_confidence
+        consequential token in target    -> status = needs_confirmation (requires_confirmation)
+        otherwise                        -> status = running  (extension executes, then loops)
+```
+
+`loop/state.py` status vocabulary · `loop/history.py` compact history + repeat
+detection · `loop/safety.py` consequential-action classifier (`pay`, `buy`,
+`delete`, `transfer`, … as whole tokens of the target/value, never the goal) ·
+`loop/controller.py` the step above.
+
+Loop log (demo-ready):
+
+```
+reach.loop: [LOOP] Step 1  goal='Open my electricity bill and show the payment details'  (0 prior actions)
+reach.loop: [REASON] action=click target=#view-bill confidence=1.00 done=False
+reach.loop: [LOOP] Step 2  (1 prior actions)
+reach.loop: [VERIFY] success=False reason=only the bill is shown, no payment history
+reach.loop: [REASON] action=click target=#payment-details confidence=1.00
+reach.loop: [LOOP] Step 3  (2 prior actions)
+reach.loop: [VERIFY] success=True reason=Payment History section is now visible
+```
+
+### Verified locally (multi-step, live ADK)
+
+| Goal | Loop |
+| --- | --- |
+| Open my electricity bill **and show the payment details** | click `#view-bill` → click `#payment-details` → **completed** (3 steps) |
+| Open my electricity bill | click `#view-bill` → **completed** (2 steps) |
+| Book me a flight to Paris | **blocked** step 1 (no invented selectors, no random clicks) |
+| Pay my electricity bill | **needs_confirmation** on `#pay-button` step 1 |
 
 ## Architecture
 
@@ -37,7 +84,8 @@ GET  /health
 | `agents/perception_agent.py` | LlmAgent, `output_key="perception"` |
 | `agents/action_agent.py` | LlmAgent, `output_key="action"` |
 | `agents/verification_agent.py` | LlmAgent, `output_key="verification"` |
-| `agents/root_agent.py` | `SequentialAgent`, ADK `Runner` + `InMemorySessionService`, orchestration logging, `run_agent()` / `run_verification()` |
+| `agents/root_agent.py` | `SequentialAgent`, ADK `Runner` + `InMemorySessionService`, orchestration logging, `run_agent(...history_text)` / `run_verification()` |
+| `loop/` | Phase 4 controller: `run_loop_step(LoopStepRequest) -> LoopStepResponse` |
 | `tools/page_context.py` | `summarize_page_context` FunctionTool |
 | `tools/action_tools.py` | `click_element` / `type_text` / `select_option` / `scroll_page` / `go_back` → structured action requests |
 | `tools/verification_tools.py` | `compare_page_states` FunctionTool |

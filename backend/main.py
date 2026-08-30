@@ -13,11 +13,19 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from agents import run_agent, run_verification
-from models import AgentRequest, AgentResponse, VerifyRequest, VerifyResponse
+from loop import run_loop_step
+from models import (
+    AgentRequest,
+    AgentResponse,
+    LoopStepRequest,
+    LoopStepResponse,
+    VerifyRequest,
+    VerifyResponse,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="REACH", version="0.3.0")
+app = FastAPI(title="REACH", version="0.4.0")
 
 # Extension calls this from a chrome-extension:// origin (and file:// pages).
 app.add_middleware(
@@ -39,7 +47,7 @@ def root():
         "service": "REACH",
         "version": app.version,
         "framework": "google-adk",
-        "endpoints": ["/health", "/agent", "/verify"],
+        "endpoints": ["/health", "/agent", "/agent/loop", "/verify"],
     }
 
 
@@ -55,6 +63,17 @@ async def agent(request: AgentRequest) -> AgentResponse:
     except RuntimeError as exc:  # e.g. GOOGLE_CLOUD_PROJECT not set
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc:  # noqa: BLE001 - surface the real error during dev
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
+
+
+@app.post("/agent/loop", response_model=LoopStepResponse)
+async def agent_loop(request: LoopStepRequest) -> LoopStepResponse:
+    """One iteration of the browser action loop: verify -> reason -> gate."""
+    try:
+        return await run_loop_step(request)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
 
 

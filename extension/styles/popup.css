@@ -114,6 +114,27 @@ select {
   border-radius: 6px;
 }
 
+.loop-log {
+  margin-top: 6px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.loop-line { white-space: pre-wrap; word-break: break-word; }
+.loop-line.head { font-weight: 600; color: #93c5fd; }
+.loop-line.ok { color: #6ee7b7; }
+.loop-line.err { color: #fca5a5; }
+.loop-line.hold { color: #fcd34d; }
+.loop-line.dim { color: #94a3b8; }
+.loop-line.approve { margin-top: 6px; display: flex; gap: 8px; }
+.loop-line.approve button { padding: 4px 10px; font-size: 12px; }
+
 .agent-result {
   margin-top: 4px;
   padding: 10px;

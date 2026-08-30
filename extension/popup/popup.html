@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>REACH</h1>
-    <span class="tag">Phase 2</span>
+    <span class="tag">Phase 4</span>
   </header>
 
   <section class="panel">
@@ -25,12 +25,17 @@
       </label>
     </div>
     <div class="row">
-      <button id="ask" class="primary">Ask REACH</button>
+      <button id="runTask" class="primary">Run task</button>
+      <button id="stopTask" hidden>Stop</button>
+      <button id="ask">Single step</button>
+    </div>
+    <div class="row">
       <label class="check">
         <input type="checkbox" id="autoRun" checked />
-        auto-run if confident
+        auto-run single step if confident
       </label>
     </div>
+    <div id="loopLog" class="loop-log" hidden></div>
     <div id="agentResult" class="agent-result" hidden></div>
   </section>
 

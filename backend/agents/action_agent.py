@@ -33,6 +33,9 @@ CURRENT URL:
 PERCEPTION AGENT FINDINGS (JSON):
 {perception}
 
+ACTIONS ALREADY TAKEN THIS TASK (most recent last):
+{state.get("history", "(none)")}
+
 FULL PAGE SUMMARY:
 {state.get("page_summary", "")}
 
@@ -48,10 +51,14 @@ Rules:
 - "target" MUST be a selector that appears in the PAGE SUMMARY. Never invent one.
 - Prefer id selectors and accessible names.
 - Choose ONE step, not the whole plan.
+- Do NOT repeat an action from the history if it clearly had no effect; try
+  another route (scroll, a different element, back).
 - confidence in [0,1] = probability this action is correct AND safe.
   If unsure, return action "none" with low confidence.
+- done = true ONLY if the goal is ALREADY fully achieved on the current page and
+  no further action is needed (then action = "none").
 
-Return JSON: action, target, value, confidence, reasoning.
+Return JSON: action, target, value, confidence, done, reasoning.
 """
 
 

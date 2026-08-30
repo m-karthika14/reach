@@ -26,6 +26,7 @@ class ActionDecision(BaseModel):
     target: Optional[str] = None
     value: Optional[str] = None
     confidence: float
+    done: bool = False  # goal already fully achieved on the current page
     reasoning: Optional[str] = None
 
 

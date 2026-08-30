@@ -233,6 +233,169 @@ $("ask").addEventListener("click", async () => {
   }
 });
 
+// ---- Run task (Phase 4 autonomous loop) -----------------------------------
+
+const MAX_CLIENT_STEPS = 8;
+const SETTLE_MS = 1000;
+const LOOP_STOP = ["blocked", "failed", "max_steps_reached", "repeated_action", "low_confidence"];
+
+const runTaskBtn = $("runTask");
+const stopTaskBtn = $("stopTask");
+const loopLog = $("loopLog");
+let loopAbort = false;
+
+function logLine(kind, text) {
+  const el = document.createElement("div");
+  el.className = "loop-line " + (kind || "");
+  el.textContent = text;
+  loopLog.appendChild(el);
+  loopLog.scrollTop = loopLog.scrollHeight;
+}
+
+function askApproval() {
+  return new Promise((resolve) => {
+    const wrap = document.createElement("div");
+    wrap.className = "loop-line approve";
+    const yes = document.createElement("button");
+    yes.textContent = "Approve";
+    yes.className = "primary";
+    const no = document.createElement("button");
+    no.textContent = "Cancel";
+    yes.onclick = () => { wrap.remove(); resolve(true); };
+    no.onclick = () => { wrap.remove(); resolve(false); };
+    wrap.append(yes, no);
+    loopLog.appendChild(wrap);
+    loopLog.scrollTop = loopLog.scrollHeight;
+  });
+}
+
+function endLoop() {
+  runTaskBtn.disabled = false;
+  stopTaskBtn.hidden = true;
+  loopAbort = false;
+}
+
+stopTaskBtn.addEventListener("click", () => {
+  loopAbort = true;
+  stopTaskBtn.disabled = true;
+  logLine("hold", "⏹ Stop requested — halting after this step.");
+});
+
+function describe(step) {
+  return (
+    `${step.action}` +
+    (step.target ? ` ${step.target}` : "") +
+    (step.value != null ? ` = ${step.value}` : "") +
+    ` (${Math.round((step.confidence ?? 0) * 100)}%)`
+  );
+}
+
+runTaskBtn.addEventListener("click", async () => {
+  const goal = goalInput.value.trim();
+  if (!goal) return;
+  const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
+  chrome.storage.local.set({ goal, backend });
+
+  agentResult.hidden = true;
+  loopLog.hidden = false;
+  loopLog.innerHTML = "";
+  loopAbort = false;
+  runTaskBtn.disabled = true;
+  stopTaskBtn.hidden = false;
+  stopTaskBtn.disabled = false;
+  logLine("head", `Goal: ${goal}`);
+
+  const tab = await activeTab();
+  if (!tab?.id) { logLine("err", "No active tab."); return endLoop(); }
+
+  let history = [];
+  let prevDom = null;
+  let lastAction = null;
+
+  try {
+    for (let i = 0; i < MAX_CLIENT_STEPS; i++) {
+      if (loopAbort) { logLine("hold", "Cancelled by user."); break; }
+
+      const page = await sendToTab(tab.id, { type: "GET_PAGE_CONTEXT" });
+      if (page?.__error) { logLine("err", "Cannot read page: " + page.__error); break; }
+      const dom = JSON.stringify(page);
+
+      let screenshot = null;
+      if ($("askScreenshot").checked) {
+        const s = await captureScreenshot(tab.windowId);
+        if (s?.success) screenshot = s.dataUrl;
+      }
+
+      let step;
+      try {
+        const r = await fetch(backend + "/agent/loop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            goal,
+            url: page.url,
+            dom,
+            screenshot,
+            history,
+            prev_dom: prevDom,
+            last_action: lastAction,
+            max_steps: MAX_CLIENT_STEPS
+          })
+        });
+        if (!r.ok) { logLine("err", `Backend ${r.status}: ${await r.text()}`); break; }
+        step = await r.json();
+      } catch (e) {
+        logLine("err", "Could not reach backend: " + e);
+        break;
+      }
+
+      const label = `Step ${step.step}/${MAX_CLIENT_STEPS} · ${step.status}`;
+
+      if (step.status === "completed") {
+        logLine("ok", `✅ ${label} — ${step.reason || "goal achieved"}`);
+        break;
+      }
+      if (LOOP_STOP.includes(step.status)) {
+        logLine("err", `⛔ ${label} — ${step.reason || ""}`);
+        break;
+      }
+
+      if (step.status === "needs_confirmation") {
+        logLine("hold", `⚠ ${label} — wants: ${describe(step)}`);
+        if (step.reason) logLine("hold", step.reason);
+        const ok = await askApproval();
+        if (!ok) { logLine("hold", "Declined — stopping."); break; }
+      } else {
+        logLine("", `${label} — ${describe(step)}`);
+        if (step.reason) logLine("dim", step.reason);
+      }
+
+      if (step.action === "none") { logLine("err", "No executable action returned."); break; }
+
+      const msg = { type: "EXECUTE_ACTION", action: ACTION_MAP[step.action] };
+      if (step.target) msg.selector = step.target;
+      if (step.value != null) msg.value = step.value;
+      if (step.action === "scroll") msg.amount = 600;
+
+      const result = await sendToTab(tab.id, msg);
+      if (!result || !result.success) {
+        logLine("err", "Execution failed: " + JSON.stringify(result));
+        break;
+      }
+      logLine("dim", `↳ executed ${step.action}`);
+
+      history.push({ step: step.step, action: step.action, target: step.target, value: step.value });
+      prevDom = dom;
+      lastAction = { action: step.action, target: step.target, value: step.value };
+
+      await new Promise((r) => setTimeout(r, SETTLE_MS));
+      if (i === MAX_CLIENT_STEPS - 1) logLine("err", "Reached client step cap.");
+    }
+  } finally {
+    endLoop();
+  }
+});
+
 $("run").addEventListener("click", async () => {
   const tab = await activeTab();
   if (!tab?.id) return print("No active tab.");

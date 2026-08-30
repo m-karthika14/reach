@@ -77,12 +77,21 @@ def _as_dict(value: Any) -> Optional[dict[str, Any]]:
 
 
 async def run_agent(
-    goal: str, url: str, dom: str, screenshot: Optional[str] = None
+    goal: str,
+    url: str,
+    dom: str,
+    screenshot: Optional[str] = None,
+    history_text: str = "",
 ) -> AgentResponse:
     page_summary, known_selectors = _g._summarize_dom(dom)
     log.info("[ROOT] goal=%r url=%r (%d known selectors)", goal, url, len(known_selectors))
 
-    state = {"goal": goal, "url": url, "page_summary": page_summary}
+    state = {
+        "goal": goal,
+        "url": url,
+        "page_summary": page_summary,
+        "history": history_text or "(none)",
+    }
 
     try:
         final = await _run(root_agent, state, goal, "ACT")
