@@ -5,9 +5,10 @@ from enum import Enum
 
 class LoopStatus(str, Enum):
     RUNNING = "running"                    # execute the returned action, then continue
-    COMPLETED = "completed"               # verification says the goal is achieved
+    COMPLETED = "completed"               # verification VERIFIED the goal
     BLOCKED = "blocked"                   # no safe next action found
-    FAILED = "failed"                     # an error stopped the loop
+    FAILED = "failed"                     # verification FAILED and no safe retry
+    AMBIGUOUS = "ambiguous"              # verification could not confirm - HARD STOP, no retry
     MAX_STEPS_REACHED = "max_steps_reached"
     REPEATED_ACTION = "repeated_action"   # same action+target proposed too many times
     LOW_CONFIDENCE = "low_confidence"     # below the confidence gate
@@ -20,6 +21,7 @@ TERMINAL = {
     LoopStatus.COMPLETED,
     LoopStatus.BLOCKED,
     LoopStatus.FAILED,
+    LoopStatus.AMBIGUOUS,
     LoopStatus.MAX_STEPS_REACHED,
     LoopStatus.REPEATED_ACTION,
     LoopStatus.LOW_CONFIDENCE,

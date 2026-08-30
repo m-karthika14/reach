@@ -43,6 +43,9 @@ LAST RECONCILIATION (if a CONFLICT/UNKNOWN is pending, REACH stopped and is
 waiting for the user to say which element they meant):
 {s.get("last_reconciliation") or "(none)"}
 
+LAST VERIFICATION (result of the previous action - status + evidence):
+{s.get("last_verification") or "(none)"}
+
 CONVERSATION SO FAR:
 {s.get("history_text") or "(no prior turns)"}
 
@@ -50,8 +53,12 @@ NEW USER MESSAGE:
 {s.get("message")}
 
 Classify the new message:
-- "command": stop / cancel / pause / continue / resume / yes / ok / no / don't.
-  Set "command" to one of stop|continue|pause|yes|no.
+- "command": stop / cancel / pause / continue / resume / yes / ok / no / don't /
+  try again / retry / do it again. Set "command" to one of
+  stop|continue|pause|yes|no|retry.
+- "status_query": the user is asking whether the last action worked
+  ("did it work?", "did it go through?", "what happened?"). Set a reply that
+  answers from LAST VERIFICATION.
 - "correction": the user is changing the plan ("actually...", "no, do X instead").
   Put the new objective in resolved_goal and the immediate ask in resolved_request.
 - "new_goal": a fresh task unrelated to the current one.

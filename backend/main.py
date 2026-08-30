@@ -28,7 +28,7 @@ from sessions import SessionManager, new_session_id, run_chat_turn
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="REACH", version="0.5.0")
+app = FastAPI(title="REACH", version="0.8.0")
 
 _sessions = SessionManager()
 
@@ -118,8 +118,12 @@ async def verify(request: VerifyRequest) -> VerifyResponse:
             after_url=request.after_url,
         )
         return VerifyResponse(
+            status=result.get("status", "AMBIGUOUS"),
             success=bool(result.get("success", False)),
             reason=str(result.get("reason", "")),
+            evidence=[str(e) for e in result.get("evidence", [])],
+            retry_allowed=bool(result.get("retry_allowed", False)),
+            risk_level=result.get("risk_level"),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))

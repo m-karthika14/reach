@@ -1,7 +1,12 @@
-"""Verification Agent - "Did the action actually achieve the goal?"
+"""Verification Agent - "Did the user's GOAL succeed?" (Phase 8)
 
-Compares the page BEFORE and AFTER the executed action and returns
-{success, reason}. Runs as its own turn (after the extension re-inspects).
+Judges the GOAL, not the click. Reasons over extracted before/after evidence and
+returns one of five states. It is deliberately conservative: no confirmation
+either way -> AMBIGUOUS, never VERIFIED.
+
+The Root Agent then applies deterministic rules on top:
+  - success is forced False unless status == VERIFIED
+  - retry_allowed is set by policy (AMBIGUOUS/BLOCKED/VERIFIED -> never)
 """
 
 from google.adk.agents import LlmAgent
@@ -15,7 +20,8 @@ def _instruction(ctx: ReadonlyContext) -> str:
     state = ctx.state
     return f"""You are REACH's Verification Agent.
 
-Decide whether the executed action achieved (or clearly progressed) the user's goal.
+Decide whether the user's GOAL was achieved by the executed action. A click
+"working" is NOT the goal succeeding - judge the goal.
 
 USER GOAL:
 {state.get("goal", "")}
@@ -23,36 +29,41 @@ USER GOAL:
 ACTION THAT WAS EXECUTED:
 {state.get("action_taken", "")}
 
-PAGE BEFORE THE ACTION:
+EXTRACTED EVIDENCE (before -> after diff):
+{state.get("evidence_text", "(none)")}
+
+PAGE BEFORE:
 {state.get("before_summary", "")}
 
-PAGE AFTER THE ACTION:
+PAGE AFTER:
 {state.get("after_summary", "")}
 
-Judge from concrete evidence that the GOAL's outcome is now present: a URL
-change, new content that belongs to the goal (e.g. for "open the bill" -> an
-actual bill with amount due / due date / line items), a real confirmation
-(receipt, transaction id), or the relevant control/section now being shown.
+Choose ONE status:
 
-Do NOT count as success:
-- a status line, toast, or log echoing that a button was clicked
-  (e.g. "View Bill clicked", "Pay Bill clicked at 10:31")
-- the same page with only that kind of acknowledgement text added
-- the action merely having executed without the goal's content appearing
+- "VERIFIED": concrete evidence the GOAL is done - the expected content/receipt/
+  confirmation/URL is present. For a payment or purchase this REQUIRES a success
+  message AND a transaction id / receipt; a "processing..." state is NOT enough.
+- "FAILED": clear evidence it did not work - an error message, "unable to...",
+  404/permission-denied, or the page is unchanged and the target still sits there
+  with nothing having happened.
+- "AMBIGUOUS": the page changed but there is NO confirmation of success and NO
+  clear error - a spinner, "processing", a blank transition, missing receipt.
+  When unsure between VERIFIED and AMBIGUOUS, choose AMBIGUOUS.
 
-Return JSON:
-- success: true only if the after-state actually shows the goal's outcome
-- reason: one sentence citing the specific evidence (or what is missing)
-
-Be conservative: if the evidence is only an "X clicked" acknowledgement or is
-otherwise ambiguous, success = false.
+Fill:
+- success: true ONLY if status is VERIFIED
+- reason: one sentence
+- evidence: 2-5 short bullet strings of what you actually observed (present AND
+  notably absent, e.g. "no transaction id", "no success message")
+- retry_allowed: your suggestion (a transient FAILED like a network error may be
+  retried; a payment AMBIGUOUS must NOT). The backend enforces the final rule.
 """
 
 
 verification_agent = LlmAgent(
     name="verification_agent",
     model=MODEL,
-    description="Checks whether the executed action achieved the user's goal.",
+    description="Goal-level, evidence-based verification -> VERIFIED / FAILED / AMBIGUOUS.",
     instruction=_instruction,
     output_schema=VerificationResult,
     output_key="verification",

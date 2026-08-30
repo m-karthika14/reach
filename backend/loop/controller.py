@@ -56,11 +56,31 @@ async def run_loop_step(req: LoopStepRequest) -> LoopStepResponse:
             after_dom=req.dom,
             after_url=req.url,
         )
-        log.info("[VERIFY] success=%s reason=%s",
-                 verification.get("success"), verification.get("reason"))
-        if verification.get("success"):
+        vstatus = verification.get("status", "AMBIGUOUS")
+        log.info("[VERIFY] status=%s success=%s retry_allowed=%s reason=%s",
+                 vstatus, verification.get("success"), verification.get("retry_allowed"),
+                 verification.get("reason"))
+
+        if vstatus == "VERIFIED" or verification.get("success"):
             return _step(LoopStatus.COMPLETED, step, done=True, confidence=1.0,
                          reason=verification.get("reason"), verification=verification)
+
+        # Phase 8: AMBIGUOUS -> hard stop, never retry (Steps 8.19, 8.22).
+        if vstatus == "AMBIGUOUS":
+            log.warning("[SAFETY] loop stopped: verification AMBIGUOUS, retry blocked")
+            return _step(LoopStatus.AMBIGUOUS, step, verification=verification,
+                         reason=(
+                             "I can't confirm the last action achieved the goal, and I "
+                             "won't retry it because that could repeat a consequential "
+                             f"step. {verification.get('reason', '')}"
+                         ))
+
+        # FAILED with no safe retry -> stop; FAILED + retry_allowed -> fall through
+        if vstatus == "FAILED" and not verification.get("retry_allowed"):
+            return _step(LoopStatus.FAILED, step, verification=verification,
+                         reason=verification.get("reason") or "The action did not achieve the goal.")
+        if vstatus == "FAILED":
+            log.info("[LOOP] FAILED but retry_allowed - attempting recovery")
 
     # --- reason the next action via the ADK Root Agent (Step 4.1.2) ------- #
     decision = await run_agent(

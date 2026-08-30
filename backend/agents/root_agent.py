@@ -30,6 +30,9 @@ from google.genai import types
 
 import gemini as _g
 from models import AgentResponse
+from policy import retry_allowed as _retry_allowed
+from policy import risk_level as _risk_level
+from tools.verification_tools import compare_page_states as _compare_page_states
 
 from .action_agent import action_agent
 from .config import APP_NAME, USER_ID, ensure_project
@@ -289,6 +292,19 @@ async def run_agent(
     return response
 
 
+_VALID_VERIFY_STATUS = {"VERIFIED", "FAILED", "AMBIGUOUS", "BLOCKED", "NEEDS_CONFIRMATION"}
+
+
+def _page_text_url(dom: str) -> tuple[str, str]:
+    try:
+        page = json.loads(dom)
+        if isinstance(page, dict):
+            return str(page.get("visibleText") or ""), str(page.get("url") or "")
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return "", ""
+
+
 async def run_verification(
     goal: str,
     before_dom: str,
@@ -299,26 +315,67 @@ async def run_verification(
     before_summary, _ = _g._summarize_dom(before_dom)
     after_summary, _ = _g._summarize_dom(after_dom)
     action_taken = action if isinstance(action, str) else json.dumps(action, default=str)
+    act = _as_dict(action) or {}
 
-    log.info("[ROOT] verifying goal=%r after_url=%r", goal, after_url)
+    # -- deterministic evidence extraction (Step 8.15) --------------------- #
+    b_text, b_url = _page_text_url(before_dom)
+    a_text, a_url = _page_text_url(after_dom)
+    diff = _compare_page_states(b_url, after_url or a_url, b_text, a_text)
+    evidence_text = json.dumps(diff, default=str)[:2000]
+
+    log.info("[VERIFY] goal=%r  [BEFORE] url=%r  [ACTION] %s  [AFTER] url=%r  url_changed=%s",
+             goal, b_url, action_taken, after_url or a_url, diff.get("url_changed"))
+
     state = {
         "goal": goal,
         "action_taken": action_taken,
+        "evidence_text": evidence_text,
         "before_summary": before_summary,
         "after_summary": (f"URL: {after_url}\n" if after_url else "") + after_summary,
     }
 
     try:
         final = await _run(verification_agent, state, goal, "VERIFY")
+        result = _as_dict(final.get("verification")) or {}
     except RuntimeError:
         raise
     except Exception:
         log.exception("[VERIFICATION] agent failed")
-        return {"success": False, "reason": "Verification agent error."}
+        result = {}
 
-    result = _as_dict(final.get("verification")) or {
-        "success": False,
-        "reason": "Verification Agent produced no usable output.",
+    status = str(result.get("status", "")).upper()
+    if status not in _VALID_VERIFY_STATUS:
+        status = "AMBIGUOUS"
+    reason = str(result.get("reason") or "Could not establish whether the goal succeeded.")
+    evidence = [str(e) for e in (result.get("evidence") or []) if e]
+    if not evidence:
+        evidence = _summarize_diff(diff)
+
+    # -- deterministic overrides (Steps 8.19, 8.20, 8.23, 8.39) ---------- #
+    success = status == "VERIFIED"                      # false-success prevention
+    level = _risk_level(act.get("action", ""), act.get("target"), act.get("value"))
+    retry_ok = _retry_allowed(status, level)            # policy, not the model
+
+    out = {
+        "status": status,
+        "success": success,
+        "reason": reason,
+        "evidence": evidence,
+        "retry_allowed": retry_ok,
+        "risk_level": level,
     }
-    log.info("[VERIFICATION] -> %s", result)
-    return result
+    log.info("[VERIFICATION] -> %s  success=%s  retry_allowed=%s  risk=%s",
+             status, success, retry_ok, level)
+    if status == "AMBIGUOUS":
+        log.warning("[SAFETY] verification AMBIGUOUS - retry blocked, success NOT claimed")
+    return out
+
+
+def _summarize_diff(diff: dict) -> list[str]:
+    ev = []
+    ev.append("URL changed" if diff.get("url_changed") else "URL unchanged")
+    for ln in (diff.get("new_lines") or [])[:4]:
+        ev.append(f"new: {ln}")
+    if not diff.get("new_lines"):
+        ev.append("no new page content")
+    return ev

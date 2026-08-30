@@ -8,11 +8,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 
 from agents import resolve_message, run_agent, run_verification
-from loop.safety import classify_risk
 from models import AgentResponse, ChatRequest, ChatResponse
+from policy import classify_risk
 
 from .manager import SessionManager, new_session_id
 
@@ -33,6 +35,18 @@ def _phrase(a: AgentResponse) -> str:
     return f"{bit} {a.target}".strip() if a.target else bit
 
 
+_AMOUNT_RE = re.compile(r"(?:₹|\bRs\.?\s?|\$)\s?[\d,]+(?:\.\d{1,2})?")
+
+
+def _extract_amount(dom: str) -> str | None:
+    try:
+        text = json.loads(dom).get("visibleText", "") if dom else ""
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        text = dom or ""
+    m = _AMOUNT_RE.search(text)
+    return m.group(0).strip() if m else None
+
+
 async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatResponse:
     session_id = req.session_id or new_session_id()
 
@@ -48,13 +62,15 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
             manager.record_execution(state, req.last_executed)
             if req.prev_dom:
                 try:
-                    state.verification_status = await run_verification(
+                    v = await run_verification(
                         goal=state.user_goal or req.message,
                         before_dom=req.prev_dom,
                         action=req.last_executed,
                         after_dom=req.dom,
                         after_url=req.url,
                     )
+                    state.verification_status = v
+                    state.last_verification = v
                 except Exception:  # noqa: BLE001
                     log.exception("[chat] verification failed")
 
@@ -70,6 +86,7 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
             "history_text": manager.history_text(state),
             "pending_confirmation": state.pending_confirmation,
             "last_reconciliation": state.last_reconciliation,
+            "last_verification": state.last_verification,
         }
         interp = await resolve_message(ctx, req.message)
         log.info("[CHAT] intent=%s command=%s goal=%r request=%r",
@@ -79,8 +96,43 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
         requires_confirmation = False
         reply = interp.reply or "Okay."
 
+        lv = state.last_verification or {}
+
         # 4. explicit commands (Steps 5.24-5.26, 5.40)
-        if interp.command == "stop":
+        if interp.intent == "status_query":
+            # Answer from stored evidence (Step 8.42) - never guess.
+            if lv:
+                ev = "; ".join(lv.get("evidence", [])[:4])
+                reply = (
+                    f"Last action: {lv.get('status')}. {lv.get('reason', '')}"
+                    + (f" Evidence: {ev}." if ev else "")
+                )
+            else:
+                reply = "I haven't taken an action to check yet."
+        elif interp.command == "retry":
+            # Deterministic no-retry rule (Steps 8.19, 8.23, 8.38).
+            if lv.get("status") == "AMBIGUOUS":
+                state.status = "blocked"
+                reply = (
+                    "I can't safely retry that. The previous attempt's result "
+                    f"couldn't be confirmed ({lv.get('reason', '')}), and retrying a "
+                    "consequential step could duplicate it."
+                )
+            elif lv.get("status") == "FAILED" and lv.get("retry_allowed"):
+                state.status = "running"
+                resp = await run_agent(
+                    goal=state.user_goal or req.message, url=req.url, dom=req.dom,
+                    screenshot=req.screenshot, history_text=manager.actions_text(state),
+                )
+                if resp.action != "none" and resp.confidence >= CONFIDENCE_GATE and not resp.reconciliation:
+                    action = resp
+                    reply = interp.reply or f"Retrying: {_phrase(resp)}."
+                else:
+                    state.status = "blocked"
+                    reply = resp.reasoning or "I couldn't find a safe way to retry."
+            else:
+                reply = "There's nothing pending that I should retry."
+        elif interp.command == "stop":
             state.status = "cancelled"
             state.pending_confirmation = None
             reply = "Okay, I've stopped."
@@ -156,8 +208,10 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                         state.status = "waiting_confirmation"
                         action = resp
                         requires_confirmation = True
+                        amount = _extract_amount(req.dom)
+                        amount_bit = f" This will pay {amount}." if amount else ""
                         reply = (
-                            f"That's a consequential action ({risk}). "
+                            f"That's a consequential action ({risk}).{amount_bit} "
                             f"Say \"yes\" to go ahead."
                         )
                     else:

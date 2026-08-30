@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>REACH Demo - Ambiguous Test</title>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; padding: 40px; background: #f4f6fb; }
+    .card { max-width: 460px; margin: 0 auto; background: #fff; border: 1px solid #e3e6ee; border-radius: 12px; padding: 26px; text-align: center; }
+    h1 { margin-top: 0; }
+    .amount { font-size: 24px; font-weight: 700; margin: 8px 0 18px; }
+    #pay-now { padding: 14px 34px; border: 0; border-radius: 8px; background: #16a34a; color: #fff; font-size: 18px; font-weight: 700; cursor: pointer; }
+    #processing { margin-top: 20px; color: #64748b; }
+    [hidden] { display: none; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 3px solid #cbd5e1; border-top-color: #16a34a; border-radius: 50%; animation: spin 0.9s linear infinite; vertical-align: middle; margin-right: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Electricity Bill</h1>
+    <div class="amount">&#8377;1,240.00</div>
+    <button id="pay-now">Pay Now</button>
+    <!-- After the click the page shows ONLY a spinner. No receipt, no
+         transaction id, no success or failure message -> AMBIGUOUS. -->
+    <div id="processing" hidden><span class="spinner"></span>Processing payment&hellip;</div>
+  </div>
+  <script>
+    document.getElementById("pay-now").addEventListener("click", () => {
+      document.getElementById("pay-now").hidden = true;
+      document.getElementById("processing").hidden = false;
+    });
+  </script>
+</body>
+</html>

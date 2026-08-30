@@ -59,16 +59,27 @@ class ActionDecision(BaseModel):
 
 
 class VerificationResult(BaseModel):
-    success: bool
+    """Did the user's GOAL succeed - judged from evidence (Phase 8)."""
+
+    status: Literal[
+        "VERIFIED",           # enough evidence the goal was achieved
+        "FAILED",             # clear evidence it did not
+        "AMBIGUOUS",          # cannot tell - no confirmation either way
+        "BLOCKED",            # refused before/at execution (conflict, policy)
+        "NEEDS_CONFIRMATION", # valid but consequential - awaiting approval
+    ]
+    success: bool             # true ONLY when status == VERIFIED
     reason: str
+    evidence: List[str] = []  # concrete observations that drove the verdict
+    retry_allowed: bool = False
 
 
 class DialogueInterpretation(BaseModel):
     """How the new user message relates to the ongoing session (Phase 5)."""
 
-    intent: Literal["command", "new_goal", "reference", "correction", "smalltalk"]
+    intent: Literal["command", "new_goal", "reference", "correction", "smalltalk", "status_query"]
     command: Optional[
-        Literal["stop", "continue", "pause", "yes", "no"]
+        Literal["stop", "continue", "pause", "yes", "no", "retry"]
     ] = None
     # Overall objective with pronouns/ordinals expanded (e.g. "it" -> "the electricity bill").
     resolved_goal: Optional[str] = None

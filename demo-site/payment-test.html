@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>REACH Demo - Payment Test</title>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; padding: 40px; background: #f4f6fb; }
+    .card { max-width: 460px; margin: 0 auto; background: #fff; border: 1px solid #e3e6ee; border-radius: 12px; padding: 26px; text-align: center; }
+    h1 { margin-top: 0; }
+    .amount { font-size: 24px; font-weight: 700; margin: 8px 0 18px; }
+    #pay { padding: 14px 34px; border: 0; border-radius: 8px; background: #16a34a; color: #fff; font-size: 18px; font-weight: 700; cursor: pointer; }
+    .receipt { margin-top: 20px; padding: 14px; border-radius: 8px; background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+    [hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Electricity Bill</h1>
+    <p>Amount due</p>
+    <div class="amount">&#8377;2,450.00</div>
+
+    <button id="pay">Pay &#8377;2,450</button>
+
+    <!-- After a successful payment: explicit success message AND a transaction
+         id AND a receipt number -> VERIFIED. -->
+    <div class="receipt" id="receipt" hidden>
+      <strong>Payment successful.</strong><br />
+      Transaction ID: TX-44821<br />
+      Receipt: RCPT-2026-0091<br />
+      Status: Paid
+    </div>
+  </div>
+  <script>
+    document.getElementById("pay").addEventListener("click", () => {
+      document.getElementById("pay").hidden = true;
+      document.getElementById("receipt").hidden = false;
+    });
+  </script>
+</body>
+</html>

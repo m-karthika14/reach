@@ -25,7 +25,8 @@ class SessionState(BaseModel):
     previous_actions: List[dict] = []         # [{action, target, value, success}]
     current_candidates: List[dict] = []       # [{name, selector, kind}]
     pending_confirmation: Optional[dict] = None   # a consequential action awaiting "yes"
-    verification_status: Optional[dict] = None    # {success, reason}
+    verification_status: Optional[dict] = None    # last verification (Phase 8: status/evidence/retry_allowed)
+    last_verification: Optional[dict] = None       # alias kept for dialogue lookups
     perception_mode: Optional[str] = None         # "structure" | "vision" | "reconciliation"
     last_reconciliation: Optional[dict] = None     # {status, structure_interpretation, vision_interpretation, ...}
 

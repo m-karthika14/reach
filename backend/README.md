@@ -1,8 +1,8 @@
-# REACH Backend — Phase 7
+# REACH Backend — Phase 8
 
 FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`),
-persistent Firestore sessions, Structure + Vision routing, and a
-**Reconciliation** gate that fails closed when the two perceptions disagree.
+persistent Firestore sessions, Structure + Vision + Reconciliation, and
+**evidence-based verification** that refuses to claim success it can't prove.
 
 `main.py` is only the HTTP boundary. Reasoning lives in `agents/`, the
 browser-loop controller in `loop/`, session state in `sessions/`.
@@ -138,9 +138,30 @@ reach.loop: [VERIFY] success=True reason=Payment History section is now visible
                             |
                       AgentResponse  (+ perception_mode, vision_used, timings)
 
-      VERIFICATION AGENT  (separate turn, unchanged)
-      goal + before + action + after  ->  { success, reason }
+      VERIFICATION AGENT  (Phase 8 - separate turn, after the extension re-inspects)
+      goal + before + action + after
+        -> deterministic evidence extraction (compare_page_states)
+        -> agent judges the GOAL -> VERIFIED | FAILED | AMBIGUOUS
+        -> deterministic overrides:
+             success = (status == VERIFIED)                 # no false success
+             retry_allowed = policy(status, risk_level)     # AMBIGUOUS/high-risk -> never
+      { status, success, reason, evidence[], retry_allowed, risk_level }
 ```
+
+### Phase 8 - verification lifecycle
+
+`policy.py` (import-cycle-free, shared by `agents/` and `loop/`):
+`classify_risk` · `risk_level` (low/medium/high) · `retry_allowed(status, level)`
+(only a non-high-risk **FAILED** may retry; VERIFIED/AMBIGUOUS/BLOCKED/NEEDS_CONFIRMATION never).
+
+- **Loop**: `AMBIGUOUS` -> `LoopStatus.AMBIGUOUS` hard stop, no retry.
+  `FAILED` + not `retry_allowed` -> stop; `FAILED` + `retry_allowed` -> one recovery pass.
+- **Chat**: `try again` after an `AMBIGUOUS` consequential action -> deterministic
+  refusal ("I can't safely retry ... could duplicate it"). `did it work?` ->
+  answered from stored `last_verification` evidence, never guessed.
+- **NEEDS_CONFIRMATION**: pre-action risk gate; the reply names the amount when
+  one is on the page ("This will pay ₹2,450. Say \"yes\" ...").
+- `SessionState.last_verification` persisted to Firestore.
 
 Vision is a **fallback, not the default**: an unambiguous page costs one
 Structure call; only an ambiguous/icon page adds the Vision call. `run_agent`

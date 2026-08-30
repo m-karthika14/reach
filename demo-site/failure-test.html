@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>REACH Demo - Failure Test</title>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; padding: 40px; background: #f4f6fb; }
+    .card { max-width: 460px; margin: 0 auto; background: #fff; border: 1px solid #e3e6ee; border-radius: 12px; padding: 26px; }
+    h1 { margin-top: 0; }
+    button { margin-top: 12px; padding: 10px 18px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font-size: 14px; cursor: pointer; }
+    .err { margin-top: 16px; padding: 12px; border-radius: 6px; background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    [hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Electricity Account</h1>
+    <p>Bill: <strong>&#8377;1,240</strong></p>
+    <button id="view-bill">View Bill</button>
+    <div class="err" id="err" hidden>Unable to load bill. Error 503 - the billing service is temporarily unavailable.</div>
+  </div>
+  <script>
+    document.getElementById("view-bill").addEventListener("click", () => {
+      document.getElementById("err").hidden = false;
+    });
+  </script>
+</body>
+</html>

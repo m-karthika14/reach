@@ -42,8 +42,12 @@ class VerifyRequest(BaseModel):
 
 
 class VerifyResponse(BaseModel):
-    success: bool
+    status: Literal["VERIFIED", "FAILED", "AMBIGUOUS", "BLOCKED", "NEEDS_CONFIRMATION"]
+    success: bool          # true only when status == VERIFIED
     reason: str
+    evidence: List[str] = []
+    retry_allowed: bool = False
+    risk_level: Optional[str] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -77,6 +81,7 @@ class LoopStepResponse(BaseModel):
         "completed",
         "blocked",
         "failed",
+        "ambiguous",
         "max_steps_reached",
         "repeated_action",
         "low_confidence",

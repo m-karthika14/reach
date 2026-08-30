@@ -219,7 +219,15 @@ async function sendChat() {
         : ""));
   }
   if (r.verification_status) {
-    chatMsg("meta", "", `verify: ${r.verification_status.success ? "✓" : "✗"} ${r.verification_status.reason || ""}`);
+    const v = r.verification_status;
+    const icon = v.status === "VERIFIED" ? "✓" : v.status === "AMBIGUOUS" ? "⚠" : "✗";
+    chatMsg("meta", "", `verify: ${icon} ${v.status || (v.success ? "ok" : "?")} — ${v.reason || ""}`);
+    if (Array.isArray(v.evidence) && v.evidence.length) {
+      chatMsg("meta", "", "evidence: " + v.evidence.slice(0, 4).join("; "));
+    }
+    if (v.status === "AMBIGUOUS") {
+      chatMsg("meta", "", "retry blocked — REACH will not repeat a consequential action it can't confirm.");
+    }
   }
 
   const a = r.action;
@@ -372,7 +380,7 @@ $("ask").addEventListener("click", async () => {
 
 const MAX_CLIENT_STEPS = 8;
 const SETTLE_MS = 1000;
-const LOOP_STOP = ["blocked", "failed", "max_steps_reached", "repeated_action", "low_confidence"];
+const LOOP_STOP = ["blocked", "failed", "ambiguous", "max_steps_reached", "repeated_action", "low_confidence"];
 
 const runTaskBtn = $("runTask");
 const stopTaskBtn = $("stopTask");

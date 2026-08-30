@@ -1,3 +1,14 @@
+# REACH Extension — Phase 8
+
+After an action runs, the chat shows the verification verdict and evidence:
+`verify: ⚠ AMBIGUOUS — no receipt / no transaction id` and, for AMBIGUOUS,
+`retry blocked — REACH will not repeat a consequential action it can't confirm.`
+"try again" after an ambiguous payment is refused; "did it work?" is answered
+from stored evidence. New demo pages: `payment-test.html` (VERIFIED),
+`ambiguous-test.html` (AMBIGUOUS), `failure-test.html` (FAILED).
+
+---
+
 # REACH Extension — Phase 7
 
 The extension **always sends a screenshot** with chat and loop requests so the
