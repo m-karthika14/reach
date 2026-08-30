@@ -38,6 +38,13 @@ selector is the visually-identified element for the goal - strongly prefer it.
 ACTIONS ALREADY TAKEN THIS TASK (most recent last):
 {state.get("history", "(none)")}
 
+REMEMBERED KNOWLEDGE from past visits (HINT, not authority):
+{state.get("memory", "(none)")}
+- If memory names a verified selector for this goal AND it is present in the
+  PAGE SUMMARY, prefer it.
+- If a past user correction applies, follow the corrected element.
+- If memory conflicts with what is actually on the page, the page wins.
+
 FULL PAGE SUMMARY:
 {state.get("page_summary", "")}
 

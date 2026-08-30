@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+import memory as _mem
 from agents import run_agent, run_verification
 from models import LoopStepRequest, LoopStepResponse
 
@@ -60,6 +61,16 @@ async def run_loop_step(req: LoopStepRequest) -> LoopStepResponse:
         log.info("[VERIFY] status=%s success=%s retry_allowed=%s reason=%s",
                  vstatus, verification.get("success"), verification.get("retry_allowed"),
                  verification.get("reason"))
+
+        # Phase 9: verification drives what we remember (Step 9.19).
+        try:
+            _mem.writer().apply_verification_outcome(
+                session_id="", goal=req.goal, url=req.url,
+                action=req.last_action, verification=verification,
+                element_label=req.goal[:40],
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("[MEMORY] write after verification failed")
 
         if vstatus == "VERIFIED" or verification.get("success"):
             return _step(LoopStatus.COMPLETED, step, done=True, confidence=1.0,

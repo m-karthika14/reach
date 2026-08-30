@@ -29,6 +29,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 import gemini as _g
+import memory as _mem
 from models import AgentResponse
 from policy import retry_allowed as _retry_allowed
 from policy import risk_level as _risk_level
@@ -148,16 +149,28 @@ async def run_agent(
     dom: str,
     screenshot: Optional[str] = None,
     history_text: str = "",
+    memory: Optional[dict] = None,
 ) -> AgentResponse:
     page_summary, known_selectors = _g._summarize_dom(dom)
     log.info("[ROOT] goal=%r url=%r (%d known selectors, screenshot=%s)",
              goal, url, len(known_selectors), bool(screenshot))
+
+    # -- MEMORY RETRIEVAL (Phase 9 - the RAG step, before perception) ----- #
+    if memory is None:
+        try:
+            memory = _mem.retriever().retrieve(url, goal)
+        except Exception:  # noqa: BLE001
+            log.exception("[MEMORY] retrieval failed")
+            memory = {}
+    retrieved = memory or {}
+    memory_text = _mem.render_memory(retrieved)
 
     base_state = {
         "goal": goal,
         "url": url,
         "page_summary": page_summary,
         "history": history_text or "(none)",
+        "memory": memory_text,
     }
     timings: dict[str, float] = {}
     perception_mode = "structure"
@@ -285,10 +298,13 @@ async def run_agent(
     response.vision_used = vision_used
     response.timings = timings
     response.reconciliation = reconciliation
-    log.info("[ROOT] -> action=%s target=%s confidence=%.2f (%s%s%s)",
+    response.memory = retrieved
+    response.memory_used = bool(retrieved.get("page_memory") or retrieved.get("corrections"))
+    log.info("[ROOT] -> action=%s target=%s confidence=%.2f (%s%s%s%s)",
              response.action, response.target, response.confidence,
              perception_mode, ", vision" if vision_used else "",
-             ", reconciled AGREE" if reconciliation else "")
+             ", reconciled AGREE" if reconciliation else "",
+             ", memory" if response.memory_used else "")
     return response
 
 

@@ -1,8 +1,10 @@
-# REACH Backend — Phase 8
+# REACH Backend — Phase 9
 
 FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`),
-persistent Firestore sessions, Structure + Vision + Reconciliation, and
-**evidence-based verification** that refuses to claim success it can't prove.
+Firestore sessions, Structure + Vision + Reconciliation, evidence-based
+verification, and **persistent memory + RAG** — REACH learns site knowledge,
+retrieves it on later visits, and uses it (validated against the live page) to
+act faster. See `memory/README.md`.
 
 `main.py` is only the HTTP boundary. Reasoning lives in `agents/`, the
 browser-loop controller in `loop/`, session state in `sessions/`.
@@ -162,6 +164,35 @@ reach.loop: [VERIFY] success=True reason=Payment History section is now visible
 - **NEEDS_CONFIRMATION**: pre-action risk gate; the reply names the amount when
   one is on the page ("This will pay ₹2,450. Say \"yes\" ...").
 - `SessionState.last_verification` persisted to Firestore.
+
+## Phase 9 - persistent memory + RAG
+
+`memory/` (Firestore db `reach-memory`): `page_memory`, `correction_memory`,
+`preference_memory`, `task_history`. Full details in `memory/README.md`.
+
+```
+run_agent:  MemoryRetriever.retrieve(url, goal)  ->  rendered into STRUCTURE +
+            ACTION prompts as a HINT (page summary stays ground truth)
+loop/chat:  after verification -> MemoryWriter.apply_verification_outcome()
+              VERIFIED -> learn_page_element (verified, conf up)
+              FAILED   -> weaken_page_element (conf -0.3)
+              else     -> task_history only
+chat:       "always ask before paying" -> set_preference
+            correction naming a #selector -> record_correction
+```
+
+`GET /memory?url=…` feeds the extension's memory panel.
+`AgentResponse` / `ChatResponse` carry `memory` + `memory_used`.
+
+### Phase 9 - verified locally
+
+| Case | Result |
+| --- | --- |
+| first visit, then VERIFIED | `page_memory` gains `#view-bill` (verified, conf 0.9) |
+| **repeat visit on an icon-only page** | `memory_used=true`, **`vision_used=false`** — memory made Structure confident, `click #view-bill` |
+| stale memory (`#gone-btn` learned, not on page) | acts on `#view-bill` — **current page wins** |
+| FAILED outcome | `#view-bill` confidence 0.9 → 0.6 (weakened, not strengthened) |
+| "always ask before paying" | `preference_memory.confirmation_before_payment = true`, retrieved next turn |
 
 Vision is a **fallback, not the default**: an unambiguous page costs one
 Structure call; only an ambiguous/icon page adds the Vision call. `run_agent`

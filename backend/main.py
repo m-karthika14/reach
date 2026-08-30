@@ -12,6 +12,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+import memory as _mem
 from agents import run_agent, run_verification
 from loop import run_loop_step
 from models import (
@@ -53,8 +54,14 @@ def root():
         "version": app.version,
         "framework": "google-adk",
         "session_backend": _sessions.backend_kind,
-        "endpoints": ["/health", "/agent", "/agent/loop", "/verify", "/chat", "/sessions"],
+        "endpoints": ["/health", "/agent", "/agent/loop", "/verify", "/chat", "/sessions", "/memory"],
     }
+
+
+@app.get("/memory")
+async def memory(url: str = "", goal: str = ""):
+    """Everything REACH has learned about the site at `url` (Phase 9 - for the UI panel)."""
+    return _mem.retriever().retrieve(url, goal)
 
 
 @app.post("/agent", response_model=AgentResponse)

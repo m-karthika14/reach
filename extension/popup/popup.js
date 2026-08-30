@@ -153,6 +153,44 @@ function chatMsg(kind, who, text) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
+const memoryPanel = $("memoryPanel");
+
+function renderMemory(mem) {
+  if (!mem || (!mem.page_memory?.length && !mem.corrections?.length && !mem.preferences?.length)) {
+    memoryPanel.textContent = "no memory of this site yet";
+    return;
+  }
+  const esc = (s) => String(s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+  let html = "";
+  if (mem.domain) html += `<div class="mem-group">${esc(mem.domain)}</div>`;
+  if (mem.page_memory?.length) {
+    html += `<div class="mem-group">learned elements</div>`;
+    for (const r of mem.page_memory) {
+      html += `<div>${r.verified ? '<span class="mem-verified">✓</span> ' : "· "}${esc(r.element)} = <code>${esc(r.selector)}</code> (${Math.round((r.confidence || 0) * 100)}%)</div>`;
+    }
+  }
+  if (mem.corrections?.length) {
+    html += `<div class="mem-group">user corrections</div>`;
+    for (const c of mem.corrections) html += `<div>use <code>${esc(c.correct_element)}</code> not <code>${esc(c.agent_assumed || "?")}</code></div>`;
+  }
+  if (mem.preferences?.length) {
+    html += `<div class="mem-group">preferences</div>`;
+    for (const p of mem.preferences) html += `<div>${esc(p.preference)} = <code>${esc(p.value)}</code></div>`;
+  }
+  memoryPanel.innerHTML = html;
+}
+
+async function refreshMemory() {
+  const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
+  const tab = await activeTab();
+  const url = tab ? tab.url : "";
+  try {
+    const r = await fetch(`${backend}/memory?url=${encodeURIComponent(url || "")}`);
+    if (r.ok) renderMemory(await r.json());
+  } catch (e) { /* offline - leave panel as is */ }
+}
+$("refreshMemory").addEventListener("click", refreshMemory);
+
 $("newChat").addEventListener("click", () => {
   chatSessionId = null;
   chatPrevDom = null;
@@ -210,6 +248,8 @@ async function sendChat() {
   renderSessionInfo();
 
   chatMsg("reach", "REACH", r.message);
+  if (r.memory) renderMemory(r.memory);
+  if (r.memory_used) chatMsg("meta", "", "🧠 used remembered knowledge of this site");
   if (r.reconciliation && r.reconciliation.status) {
     const rc = r.reconciliation;
     chatMsg("meta", "",

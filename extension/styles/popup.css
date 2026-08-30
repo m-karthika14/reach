@@ -142,6 +142,17 @@ button.tiny {
 .chat-msg.reach .who { color: #047857; }
 .chat-msg.meta { color: #64748b; font-size: 12px; }
 
+.mem-panel {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #334155;
+  max-height: 180px;
+  overflow: auto;
+}
+.mem-panel .mem-group { font-weight: 600; margin-top: 6px; color: #475569; }
+.mem-panel code { background: #eef2ff; padding: 0 3px; border-radius: 3px; }
+.mem-panel .mem-verified { color: #047857; }
+
 .loop-log {
   margin-top: 6px;
   padding: 8px;

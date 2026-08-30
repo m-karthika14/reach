@@ -28,6 +28,14 @@ CURRENT URL:
 PAGE SUMMARY (buttons / links / inputs with selectors + accessible names, then visible text):
 {state.get("page_summary", "")}
 
+REMEMBERED KNOWLEDGE from past visits (a HINT, not authority - the PAGE SUMMARY
+above is ground truth):
+{state.get("memory", "(none)")}
+
+If a remembered selector for this goal STILL appears in the PAGE SUMMARY, you may
+be more confident and set needs_vision=false. If it is gone, ignore the memory.
+Never output a selector that is not in the PAGE SUMMARY.
+
 Return JSON:
 - page_type: short label ("billing", "login", "form", "dashboard", "unknown", ...)
 - summary: one sentence describing the page

@@ -12,6 +12,7 @@ import json
 import logging
 import re
 
+import memory as _mem
 from agents import resolve_message, run_agent, run_verification
 from models import AgentResponse, ChatRequest, ChatResponse
 from policy import classify_risk
@@ -47,6 +48,25 @@ def _extract_amount(dom: str) -> str | None:
     return m.group(0).strip() if m else None
 
 
+_PREF_CONFIRM_ON = re.compile(
+    r"\b(always ask|ask me|confirm|check with me)\b.{0,30}\b(pay|paying|payment|purchase|buy)", re.I)
+_PREF_CONFIRM_OFF = re.compile(
+    r"\b(don'?t|do not|never|stop) (ask|confirm|check).{0,30}\b(pay|payment|purchase)", re.I)
+_PREF_LANG = re.compile(r"\b(?:prefer|use|set|switch to)\b.{0,20}\b(english|kannada|hindi|tamil|telugu)\b", re.I)
+
+
+def _maybe_preference(message: str) -> tuple[str, object] | None:
+    """Detect a durable preference statement (Step 9.8), else None."""
+    if _PREF_CONFIRM_OFF.search(message):
+        return ("confirmation_before_payment", False)
+    if _PREF_CONFIRM_ON.search(message):
+        return ("confirmation_before_payment", True)
+    m = _PREF_LANG.search(message)
+    if m:
+        return ("preferred_language", m.group(1).lower())
+    return None
+
+
 async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatResponse:
     session_id = req.session_id or new_session_id()
 
@@ -56,6 +76,14 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
 
         # 1. fresh browser observation wins over stored page state
         manager.reconcile_page(state, req.url, req.dom)
+
+        # 1b. RAG: retrieve what REACH knows about this site (Phase 9)
+        try:
+            turn_memory = _mem.retriever().retrieve(req.url, state.user_goal or req.message)
+        except Exception:  # noqa: BLE001
+            log.exception("[chat] memory retrieval failed")
+            turn_memory = {}
+        memory_used = False
 
         # 2. fold in what the extension executed since last turn, and verify it
         if req.last_executed:
@@ -71,11 +99,35 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                     )
                     state.verification_status = v
                     state.last_verification = v
+                    try:
+                        _mem.writer().apply_verification_outcome(
+                            session_id=session_id, goal=state.user_goal or req.message,
+                            url=req.url, action=req.last_executed, verification=v,
+                            element_label=(state.user_goal or "")[:40],
+                        )
+                    except Exception:  # noqa: BLE001
+                        log.exception("[chat] memory write failed")
                 except Exception:  # noqa: BLE001
                     log.exception("[chat] verification failed")
 
         manager.append_turn(state, "user", req.message)
         log.info("[CHAT] %s  status=%s  msg=%r", session_id, state.status, req.message)
+
+        # 2b. durable preference statement (Phase 9, Step 9.8) -> store & ack
+        pref = _maybe_preference(req.message)
+        if pref:
+            try:
+                _mem.writer().set_preference(pref[0], pref[1])
+            except Exception:  # noqa: BLE001
+                log.exception("[chat] preference write failed")
+            reply = f"Got it - I'll remember that ({pref[0]} = {pref[1]})."
+            manager.append_turn(state, "assistant", reply)
+            await manager.save(state)
+            return ChatResponse(
+                session_id=session_id, message=reply, status=state.status,
+                candidates=state.current_candidates, memory=turn_memory,
+                current_step=state.current_step,
+            )
 
         # 3. interpret the message against the session
         ctx = {
@@ -150,6 +202,24 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
             reply = f"Okay, {_phrase(action)}."
         else:
             # 5. correction / new goal / reference / continue
+
+            # Phase 9: a correction that names a concrete element -> remember it.
+            if interp.intent == "correction" and interp.resolved_request:
+                m = re.search(r"#[\w-]+", interp.resolved_request)
+                if m and (state.last_reconciliation or state.previous_actions):
+                    assumed = ""
+                    if state.last_reconciliation:
+                        assumed = state.last_reconciliation.get("structure_interpretation") or ""
+                    elif state.previous_actions:
+                        assumed = state.previous_actions[-1].get("target", "")
+                    try:
+                        _mem.writer().record_correction(
+                            url=req.url, user_said=req.message,
+                            agent_assumed=assumed, correct_element=m.group(0),
+                        )
+                    except Exception:  # noqa: BLE001
+                        log.exception("[chat] correction write failed")
+
             if interp.resolved_goal and interp.intent in ("correction", "new_goal"):
                 # the sub-task changed: drop stale task context, keep the dialogue
                 state.pending_confirmation = None
@@ -173,7 +243,9 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                     dom=req.dom,
                     screenshot=req.screenshot,
                     history_text=manager.actions_text(state),
+                    memory=turn_memory,
                 )
+                memory_used = resp.memory_used
                 state.perception_mode = resp.perception_mode
                 state.last_reconciliation = resp.reconciliation
                 log.info("[CHAT] reason -> %s %s conf=%.2f perception=%s%s%s",
@@ -231,5 +303,7 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
             pending_confirmation=state.pending_confirmation,
             verification_status=state.verification_status,
             reconciliation=state.last_reconciliation,
+            memory=turn_memory,
+            memory_used=memory_used,
             current_step=state.current_step,
         )

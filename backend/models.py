@@ -29,6 +29,9 @@ class AgentResponse(BaseModel):
     timings: Optional[dict] = None          # {structure_ms, vision_ms?, reconciliation_ms?, action_ms}
     # Phase 7 - Structure vs Vision reconciliation (present only when Vision ran)
     reconciliation: Optional[dict] = None   # {status: AGREE|CONFLICT|UNKNOWN, ...}
+    # Phase 9 - memory retrieved for this decision (RAG)
+    memory: Optional[dict] = None
+    memory_used: bool = False
 
 
 class VerifyRequest(BaseModel):
@@ -100,6 +103,7 @@ class LoopStepResponse(BaseModel):
     perception_mode: Optional[str] = None
     vision_used: bool = False
     reconciliation: Optional[dict] = None
+    memory_used: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -129,4 +133,6 @@ class ChatResponse(BaseModel):
     pending_confirmation: Optional[dict] = None
     verification_status: Optional[dict] = None
     reconciliation: Optional[dict] = None
+    memory: Optional[dict] = None       # what RAG retrieved for this turn
+    memory_used: bool = False
     current_step: int = 0

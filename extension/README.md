@@ -1,3 +1,14 @@
+# REACH Extension — Phase 9
+
+New **REACH memory** panel — shows what REACH has learned about the current site
+(verified elements, user corrections, preferences); **Refresh** pulls
+`GET /memory?url=…`. When a turn used remembered knowledge the chat logs
+`🧠 used remembered knowledge of this site`. Screenshots are still always sent,
+but on a **repeat visit** memory often makes Structure confident enough that
+Vision is skipped entirely.
+
+---
+
 # REACH Extension — Phase 8
 
 After an action runs, the chat shows the verification verdict and evidence:
