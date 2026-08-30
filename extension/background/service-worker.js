@@ -5,6 +5,18 @@
 
 console.log("REACH service worker started");
 
+// Phase 12: Alt+R -> open the popup and tell it to start listening.
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== "activate-voice") return;
+  await chrome.storage.local.set({ reach_voice_pending: Date.now() });
+  try {
+    await chrome.action.openPopup(); // Chrome 127+
+  } catch (e) {
+    // Older Chrome: the flag is set; the user opens the popup from the toolbar
+    // and it auto-starts listening.
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "CAPTURE_SCREENSHOT") {
     chrome.tabs.captureVisibleTab(

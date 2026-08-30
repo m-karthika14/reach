@@ -9,8 +9,22 @@
 <body>
   <header>
     <h1>REACH</h1>
-    <span class="tag">Phase 5</span>
+    <span class="tag">Phase 12</span>
   </header>
+
+  <section class="panel voice-panel">
+    <div class="row">
+      <button id="voiceBtn" class="voice-btn" data-state="idle"
+              aria-label="Activate REACH">🎙 Start REACH</button>
+      <label class="check">
+        <input type="checkbox" id="ttsToggle" checked />
+        speak replies
+      </label>
+    </div>
+    <div id="voiceStatus" class="voice-status" role="status" aria-live="polite"></div>
+    <div id="voiceTranscript" class="voice-transcript" aria-live="polite"></div>
+    <div class="hint">Shortcut: <kbd>Alt</kbd>+<kbd>R</kbd></div>
+  </section>
 
   <section class="panel">
     <div class="row">

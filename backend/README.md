@@ -23,6 +23,15 @@ Detection: the Dialogue Agent emits `intent="preference_update"` with
 normalised/validated (`memory/preferences.py`) — junk is rejected.
 `GET /preferences?user_id=` · `PATCH /preferences`.
 
+## Phase 12 - voice + accessibility
+
+No backend change. Voice is an extension-only input channel: the browser does
+STT, POSTs the transcript to the **same `/chat`** (same `session_id` +
+`user_id`), and speaks back `ChatResponse.message`. The response already
+separates the spoken text (`message`, Phase 11-styled) from the machine action
+(`action`), so TTS never reads JSON. Voice confirmations reuse the Phase 8
+`requires_confirmation` / `pending_confirmation` flow.
+
 `main.py` is only the HTTP boundary. Reasoning lives in `agents/`, the
 browser-loop controller in `loop/`, session state in `sessions/`.
 

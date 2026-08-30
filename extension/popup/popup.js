@@ -263,14 +263,30 @@ $("newChat").addEventListener("click", () => {
 async function sendChat() {
   const message = chatInput.value.trim();
   if (!message) return;
-  const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
   chatInput.value = "";
+  return submitMessage(message);
+}
+
+// A chat error that is also surfaced to voice/screen-reader users (Step 12.22).
+function chatErr(msg) {
+  chatMsg("meta", "", msg);
+  if (typeof voiceState !== "undefined" && voiceState !== "idle") {
+    setVoiceState("error", msg);
+    speak(msg);
+  }
+  return null;
+}
+
+// Shared by the text box and the voice controller. Returns the /chat response.
+async function submitMessage(message) {
+  if (!message) return null;
+  const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
   chatMsg("user", "You", message);
 
   const tab = await activeTab();
-  if (!tab?.id) return chatMsg("meta", "", "No active tab.");
+  if (!tab?.id) return chatErr("No active tab.");
   const page = await sendToTab(tab.id, { type: "GET_PAGE_CONTEXT" });
-  if (page?.__error) return chatMsg("meta", "", "Cannot read this page: " + page.__error);
+  if (page?.__error) return chatErr("Cannot read this page: " + page.__error);
 
   // Always send a screenshot so the backend can fall back to the Vision Agent
   // when the DOM is ambiguous (Phase 6). It only *uses* it when routing says so.
@@ -294,10 +310,10 @@ async function sendChat() {
         last_executed: chatLastExecuted
       })
     });
-    if (!resp.ok) return chatMsg("meta", "", `Backend ${resp.status}: ${await resp.text()}`);
+    if (!resp.ok) return chatErr(`Backend ${resp.status}: ${await resp.text()}`);
     r = await resp.json();
   } catch (e) {
-    return chatMsg("meta", "", "Could not reach the backend: " + e);
+    return chatErr("Could not reach the backend: " + e);
   }
 
   // clear the "last executed" report now that it's been sent
@@ -353,15 +369,15 @@ async function sendChat() {
       : `structure ${t.structure_ms}ms`;
     chatMsg("meta", "", `perception: ${a.vision_used ? "vision 👁" : "structure"} (${ms})`);
   }
-  if (!a || a.action === "none") return;
+  if (!a || a.action === "none") return r;
 
   if (r.requires_confirmation) {
     chatMsg("meta", "", `pending: ${a.action} ${a.target || ""} — say "yes" to proceed`);
-    return;
+    return r;
   }
   if ((a.confidence ?? 0) < 0.85) {
     chatMsg("meta", "", `not run (confidence ${Math.round((a.confidence ?? 0) * 100)}%)`);
-    return;
+    return r;
   }
 
   const msg = { type: "EXECUTE_ACTION", action: ACTION_MAP[a.action] };
@@ -377,11 +393,176 @@ async function sendChat() {
   } else {
     chatMsg("meta", "", "↳ execution failed: " + JSON.stringify(result));
   }
+  return r;
 }
 
 $("chatSend").addEventListener("click", sendChat);
 chatInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendChat();
+});
+
+// ---- Voice + accessibility (Phase 12) -------------------------------------
+// Voice is just another input into the SAME /chat pipeline - no second agent.
+
+const voiceBtn = $("voiceBtn");
+const voiceStatus = $("voiceStatus");
+const voiceTranscript = $("voiceTranscript");
+const ttsToggle = $("ttsToggle");
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const LANG_TAG = { en: "en-US", kn: "kn-IN", hi: "hi-IN", ta: "ta-IN", te: "te-IN" };
+
+// Strict allowlists - unclear speech is NEVER a confirmation (Step 12.13).
+const AFFIRM = /^\s*(yes|yeah|yep|yup|yidhu|sure|ok|okay|do it|go ahead|confirm|proceed|correct|please do|haudu|haan)\b/i;
+const NEGATIVE = /^\s*(no|nope|nah|don'?t|do not|cancel|stop|illa|nahi)\b/i;
+
+let recognition = null;
+let voiceState = "idle";
+let listenTimer = null;
+let awaitingConfirm = false;
+
+const STATE_LABEL = {
+  idle: "🎙 Start REACH",
+  listening: "🔴 Listening… (click to stop)",
+  processing: "⏳ REACH is thinking…",
+  speaking: "🔊 REACH is responding… (click to stop)",
+  error: "⚠ Voice unavailable — retry"
+};
+
+function setVoiceState(s, statusMsg) {
+  voiceState = s;
+  voiceBtn.dataset.state = s;
+  voiceBtn.textContent = STATE_LABEL[s] || STATE_LABEL.idle;
+  voiceBtn.setAttribute("aria-label", STATE_LABEL[s] || "Activate REACH");
+  if (statusMsg !== undefined) voiceStatus.textContent = statusMsg;
+}
+
+function announce(msg) {
+  voiceStatus.textContent = msg;
+}
+
+function speak(text) {
+  if (!ttsToggle.checked || !text || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = LANG_TAG[$("prefLanguage").value] || "en-US";
+  setVoiceState("speaking", "REACH is responding.");
+  u.onend = () => { if (voiceState === "speaking") setVoiceState("idle", ""); };
+  u.onerror = () => { if (voiceState === "speaking") setVoiceState("idle", ""); };
+  window.speechSynthesis.speak(u);
+}
+
+function stopVoice() {
+  clearTimeout(listenTimer);
+  awaitingConfirm = false;
+  try { recognition && recognition.abort(); } catch (e) { /* noop */ }
+  try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* noop */ }
+  setVoiceState("idle", "Stopped.");
+}
+
+function startListening(forConfirm = false) {
+  if (!SR) {
+    setVoiceState("error", "Speech recognition isn't available in this browser.");
+    return;
+  }
+  awaitingConfirm = forConfirm;
+  voiceTranscript.textContent = "";
+  recognition = new SR();
+  recognition.lang = LANG_TAG[$("prefLanguage").value] || "en-US";
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () =>
+    setVoiceState("listening", forConfirm ? "Say “yes” or “no”." : "REACH is listening.");
+
+  recognition.onresult = (e) => {
+    let text = "";
+    for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+    voiceTranscript.textContent = text.trim();
+  };
+
+  recognition.onerror = (e) => {
+    clearTimeout(listenTimer);
+    const msg =
+      e.error === "not-allowed" || e.error === "service-not-allowed"
+        ? "Microphone access is blocked. Enable it in Chrome site settings for this extension, then retry."
+        : e.error === "no-speech"
+        ? "I didn't hear anything."
+        : "Voice error: " + e.error + ".";
+    setVoiceState("error", msg);
+    speak(msg);
+  };
+
+  recognition.onend = async () => {
+    clearTimeout(listenTimer);
+    const text = voiceTranscript.textContent.trim();
+    if (!text) {
+      if (voiceState === "listening") setVoiceState("idle", "I didn't hear anything.");
+      return;
+    }
+
+    if (awaitingConfirm) {
+      awaitingConfirm = false;
+      if (AFFIRM.test(text)) return handleReply(await submitMessage("yes"));
+      if (NEGATIVE.test(text)) return handleReply(await submitMessage("no"));
+      // Ambiguous during a confirmation -> do NOT act (Step 12.13 / 12.34).
+      const m = "I didn't catch a clear yes or no, so I won't proceed. Please say “yes” or “no”.";
+      setVoiceState("idle", m);
+      speak(m);
+      setTimeout(() => startListening(true), 1200);
+      return;
+    }
+
+    setVoiceState("processing", "REACH is processing your request.");
+    handleReply(await submitMessage(text));
+  };
+
+  try {
+    recognition.start();
+  } catch (e) {
+    setVoiceState("error", "Couldn't start the microphone.");
+    return;
+  }
+  // Speech timeout (Step 12.25).
+  listenTimer = setTimeout(() => {
+    try { recognition.stop(); } catch (e) { /* noop */ }
+  }, 9000);
+}
+
+async function handleReply(r) {
+  if (!r) {
+    setVoiceState("idle", "");
+    return;
+  }
+  speak(r.message);
+  if (r.requires_confirmation) {
+    // let TTS finish, then listen for yes/no
+    const waitThenListen = () => {
+      if (window.speechSynthesis && window.speechSynthesis.speaking) {
+        setTimeout(waitThenListen, 200);
+      } else {
+        startListening(true);
+      }
+    };
+    setTimeout(waitThenListen, 300);
+  } else {
+    announce("REACH finished.");
+    if (voiceState !== "speaking") setVoiceState("idle", "");
+  }
+}
+
+voiceBtn.addEventListener("click", () => {
+  if (voiceState === "listening" || voiceState === "speaking") stopVoice();
+  else startListening(false);
+});
+
+// Alt+R: the service worker set a fresh flag just before opening this popup.
+chrome.storage.local.get(["reach_voice_pending"], (s) => {
+  if (s.reach_voice_pending && Date.now() - s.reach_voice_pending < 5000) {
+    chrome.storage.local.remove("reach_voice_pending");
+    if (SR) startListening(false);
+    return;
+  }
+  setVoiceState("idle", SR ? "Press the mic or Alt+R and speak your request." : "Voice input isn't supported here — type below.");
 });
 
 $("ask").addEventListener("click", async () => {

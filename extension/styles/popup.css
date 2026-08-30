@@ -157,6 +157,42 @@ button.tiny {
 label.pref { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: #64748b; flex: 1; }
 label.pref select { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; }
 
+/* ---- Phase 12: voice + accessibility ---- */
+.voice-panel { border-color: #c7d2fe; background: #f5f7ff; }
+.voice-btn {
+  flex: 1;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.voice-btn[data-state="listening"] { background: #dc2626; border-color: #dc2626; }
+.voice-btn[data-state="processing"] { background: #64748b; border-color: #64748b; }
+.voice-btn[data-state="speaking"] { background: #0d9488; border-color: #0d9488; }
+.voice-btn[data-state="error"] { background: #b45309; border-color: #b45309; }
+.voice-status { margin-top: 8px; font-size: 12px; color: #475569; min-height: 16px; }
+.voice-transcript { margin-top: 4px; font-size: 13px; font-style: italic; color: #1e293b; min-height: 16px; }
+kbd {
+  font: 11px "Segoe UI", monospace;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* Keyboard focus must always be visible (Step 12.20). */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 3px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
 .loop-log {
   margin-top: 6px;
   padding: 8px;

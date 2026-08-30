@@ -1,3 +1,36 @@
+# REACH Extension — Phase 12  (voice + accessibility)
+
+Voice is **another input into the same `/chat` pipeline** — there is no second
+agent. `background/service-worker.js` handles the `activate-voice` command
+(**Alt+R**): it stores a fresh flag and opens the popup, which auto-starts
+listening.
+
+**Voice panel** (top of the popup):
+- Mic button with a 5-state machine — `idle / listening / processing / speaking / error`
+  (colour + label + `aria-live` status all change).
+- Web Speech API: `SpeechRecognition` (STT) → `submitMessage(transcript)` (same
+  path as the text box, same `session_id`, same `user_id`); `speechSynthesis`
+  (TTS) speaks **`r.message` only** — never the action JSON.
+- **Confirmation by voice**: after a `requires_confirmation` reply REACH speaks
+  the question, then listens for yes/no. Unclear speech ("I guess", "maybe") is
+  **never** treated as yes — it re-prompts "please say yes or no" (Step 12.13/12.34).
+- Voice "stop" flows through the Phase 5 dialogue system; the mic button also
+  stops listening / cancels TTS.
+- 9 s speech timeout; `not-allowed` / `no-speech` errors are shown in the
+  `aria-live` status **and** spoken.
+- `speak replies` checkbox toggles TTS. TTS `lang` follows the Phase 11
+  `language` preference (`en-US` / `kn-IN` / `hi-IN` …), so Kannada replies are
+  spoken in Kannada where an OS voice exists.
+
+**Accessibility**: mic is a real `<button aria-label>`; visible `:focus-visible`
+outlines are never removed; status region is `role="status" aria-live="polite"`;
+errors are text + speech; every control is keyboard-reachable (Tab / Enter / Space).
+
+Personalization carries straight into voice: `verbosity=concise` → *"Payment
+found. Continue?"* spoken; `verbosity=detailed` → the longer sentence spoken.
+
+---
+
 # REACH Extension — Phase 11
 
 New **Personalization** panel: a `user id` field plus dropdowns for
