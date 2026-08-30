@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>REACH Energy — Payment successful</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=13" />
 </head>
 <body>
   <div id="chrome"></div>
@@ -15,12 +15,13 @@
         <div class="card receipt">
           <div class="check">✓</div>
           <h1>Payment successful</h1>
-          <p style="color:var(--muted);margin:0">Your electricity bill has been paid.</p>
+          <p style="color:var(--muted);margin:0">Your electricity bill has been paid via Razorpay.</p>
           <div class="amt" id="amt">₹1,240</div>
           <div class="rows">
             <div class="r"><span class="k">Status</span><span class="v">Paid</span></div>
-            <div class="r"><span class="k">Transaction ID</span><span class="v" id="pid">—</span></div>
-            <div class="r"><span class="k">Order ID</span><span class="v" id="oid">—</span></div>
+            <div class="r"><span class="k">Payment method</span><span class="v">Razorpay (Test Mode)</span></div>
+            <div class="r"><span class="k">Razorpay Order ID</span><span class="v" id="oid">—</span></div>
+            <div class="r"><span class="k">Settlement reference</span><span class="v" id="pid">—</span></div>
             <div class="r"><span class="k">Receipt</span><span class="v" id="rcpt">—</span></div>
             <div class="r"><span class="k">Consumer</span><span class="v">REACH-2026-001</span></div>
             <div class="r"><span class="k">Date</span><span class="v" id="dt">—</span></div>
@@ -44,7 +45,7 @@
 
   <footer>Razorpay Test Mode receipt — no real payment occurred.</footer>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=13"></script>
   <script>
     document.getElementById("chrome").innerHTML = topbar("");
     Activity.mount(document.getElementById("steps"));
@@ -55,9 +56,19 @@
     try { r = JSON.parse(sessionStorage.getItem("reach_receipt") || "{}"); } catch (e) {}
     const oid = new URLSearchParams(location.search).get("order_id") || r.order_id || "";
     document.getElementById("amt").textContent = money((r.amount || 124000) / 100 || BILL.amount);
-    document.getElementById("pid").textContent = r.payment_id || "pay_demo";
+    const pid = r.payment_id || "pay_demo";
+    document.getElementById("pid").textContent = pid;
     document.getElementById("oid").textContent = oid || "order_demo";
     document.getElementById("rcpt").textContent = r.receipt || "RCPT-DEMO";
+    if (/simulat|mock/i.test(pid)) {
+      document.getElementById("status").className = "status warn";
+      document.getElementById("status").textContent =
+        "SIMULATED — this backend has no Razorpay keys.";
+    } else if ((oid || "").startsWith("order_")) {
+      document.getElementById("status").className = "status ok";
+      document.getElementById("status").textContent =
+        "Razorpay order " + oid + " — verify it in your Razorpay dashboard (Orders, Test Mode).";
+    }
     document.getElementById("dt").textContent = new Date().toLocaleString("en-IN");
   </script>
 </body>

@@ -104,12 +104,12 @@ function setStatus(kind, msg) {
   el.textContent = msg;
 }
 
-// ---------- payments ----------
-// Autonomous path: create a real test order, auto-capture it, show the receipt.
-// No card UI - so REACH can pay hands-free and the Verification Agent still gets
-// a real transaction id + receipt off success.html.
+// ---------- payment ----------
+// Hands-free (blind-user friendly): create a REAL Razorpay order via the
+// Razorpay API - it appears in the Razorpay dashboard under Orders - then
+// complete it on the backend. No checkout modal, no card/OTP, nothing to click.
 async function payAuto(amountRupees, consumer) {
-  setStatus("", "Paying your electricity bill…");
+  setStatus("", "Paying " + money(amountRupees) + " through Razorpay…");
   let order;
   try {
     const r = await fetch(backendUrl() + "/payments/create-order", {
@@ -118,9 +118,15 @@ async function payAuto(amountRupees, consumer) {
     });
     order = await r.json();
   } catch (e) {
-    setStatus("err", "Couldn't reach the payment service. Is the backend running?");
-    return;
+    return setStatus("err", "Couldn't reach the payment service. Is the backend running?");
   }
+
+  if (order.mock) {
+    return setStatus("err",
+      "This backend has NO Razorpay keys — set RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET and " +
+      "point the Backend field at it. (Currently pointed at a mock backend.)");
+  }
+
   try {
     const c = await fetch(backendUrl() + "/payments/test-capture", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -128,47 +134,14 @@ async function payAuto(amountRupees, consumer) {
     });
     const v = await c.json();
     sessionStorage.setItem("reach_receipt", JSON.stringify(v));
-    setStatus("ok", "Payment successful — redirecting to your receipt…");
+    setStatus("ok", "Payment complete — opening your receipt…");
     setTimeout(() => (location.href = "success.html?order_id=" + encodeURIComponent(order.order_id)), 500);
   } catch (e) {
     setStatus("err", "Payment could not be completed.");
   }
 }
 
-async function payWithRazorpay(amountRupees, consumer) {
-  setStatus("", "Creating secure order…");
-  let order;
-  try {
-    const r = await fetch(backendUrl() + "/payments/create-order", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: amountRupees, consumer, note: "Electricity bill" })
-    });
-    order = await r.json();
-  } catch (e) {
-    setStatus("err", "Couldn't reach the payment service. Is the backend running?");
-    return;
-  }
-
-  // Mock mode (no Razorpay keys) or checkout.js missing -> synthesise a paid receipt.
-  if (order.mock || !window.Razorpay) {
-    return finishPayment(order.order_id, "pay_" + Math.random().toString(36).slice(2, 16), "");
-  }
-
-  const rzp = new window.Razorpay({
-    key: order.key_id,
-    amount: order.amount,
-    currency: order.currency,
-    name: "REACH Energy",
-    description: "Electricity bill — " + consumer,
-    order_id: order.order_id,
-    theme: { color: "#6d28d9" },
-    handler: (res) => finishPayment(res.razorpay_order_id, res.razorpay_payment_id, res.razorpay_signature),
-    modal: { ondismiss: () => setStatus("warn", "Payment window closed — nothing was charged.") }
-  });
-  rzp.on("payment.failed", () => setStatus("err", "Payment failed. No amount was charged."));
-  rzp.open();
-  setStatus("", "Opening secure checkout…");
-}
+const payWithRazorpay = payAuto;
 
 async function finishPayment(orderId, paymentId, signature) {
   setStatus("", "Verifying payment…");
@@ -208,8 +181,7 @@ function demoControls() {
     ["normal", "Normal — clear payment control"],
     ["vision", "Vision required — icon only"],
     ["conflict", "Structure / Vision conflict"],
-    ["ambiguous", "Payment ambiguous (no receipt)"],
-    ["success", "Instant success (skip checkout)"],
+    ["ambiguous", "Payment ambiguous (stuck, no receipt)"],
   ];
   return `<div class="card side demo-ctl">
     <h2>Demo controls <span class="tag-demo">demo mode</span></h2>
@@ -219,6 +191,7 @@ function demoControls() {
       <span style="font-size:12px;color:var(--muted)">Backend</span>
       <input id="backendField" value="${backendUrl()}" />
     </div>
+    <div class="hint" id="payMode">checking payment mode…</div>
     <div class="hint">Scenario changes which elements the payment page exposes to REACH.</div>
   </div>`;
 }
@@ -228,4 +201,12 @@ function wireDemoControls() {
     r.addEventListener("change", () => { setScenario(r.value); location.reload(); }));
   const bf = document.getElementById("backendField");
   if (bf) bf.addEventListener("change", () => setBackend(bf.value.trim()));
+  // Show whether payments are live or mock.
+  fetch(backendUrl() + "/").then((r) => r.json()).then((info) => {
+    const el = document.getElementById("payMode");
+    if (!el) return;
+    const real = info.payments_mode === "real";
+    el.textContent = real ? "Razorpay: LIVE (test)" : "Razorpay: MOCK — keys not set";
+    el.style.color = real ? "var(--ok)" : "var(--danger)";
+  }).catch(() => {});
 }

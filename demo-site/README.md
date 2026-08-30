@@ -24,11 +24,19 @@ confirms → action. That's the whole point of Phases 6–7.
 
 | Scenario | payment.html exposes | REACH result |
 | --- | --- | --- |
-| `normal` | a clearly-labelled `💳 Pay ₹1,240` button | Structure confident → click → Razorpay |
-| `vision` | icon-only `<button aria-label="button">💳` | Structure unsure → Vision → AGREE → click |
-| `conflict` | `<button aria-label="Cancel">Pay Now` (looks like pay, named Cancel) | Structure "Cancel" vs Vision "Pay Now" → **CONFLICT → blocked** |
-| `ambiguous` | `💳` → "Processing payment…" forever, no receipt | Verification → **AMBIGUOUS → no retry, no false success** |
-| `success` | `💳` → instant receipt (skips checkout) | Verification → **VERIFIED** |
+There is **one pay button**; only its DOM *semantics* change per scenario. It
+always opens **Razorpay Checkout** — the extension's
+`content/razorpay-autopay.js` auto-fills the Razorpay **test card**
+(`4111 1111 1111 1111`, `12/30`, `123`) inside the checkout iframe and clicks
+through, so the agent pays hands-free.
+
+| `normal` | clearly-labelled `💳 Pay ₹1,240` | Structure confident → click → Razorpay → autopay → VERIFIED |
+| `vision` | icon-only `<button aria-label="button">💳` | Structure unsure → Vision → AGREE → Razorpay → autopay |
+| `conflict` | same button, `aria-label="Cancel"` | Structure "Cancel" vs Vision "Pay Now" → **CONFLICT → blocked** |
+| `ambiguous` | same button, stalls with no receipt | Verification → **AMBIGUOUS → no retry, no false success** |
+
+Without Razorpay keys the button still works — it falls back to a synthetic
+`/payments/verify` (mock) receipt.
 
 The **REACH activity** panel on every page shows the pipeline
 (observe → memory → structure → vision → reconcile → action → execute → verify).

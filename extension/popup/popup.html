@@ -9,45 +9,37 @@
 <body>
   <header>
     <h1>REACH</h1>
-    <span class="tag">Phase 12</span>
+    <button id="voiceBtn" class="voice-btn" data-state="idle" aria-label="Activate REACH">🎙</button>
   </header>
 
-  <section class="panel voice-panel">
+  <div id="voiceStatus" class="voice-status" role="status" aria-live="polite"></div>
+  <div id="voiceTranscript" class="voice-transcript" aria-live="polite"></div>
+
+  <div class="row wrap">
+    <label class="check"><input type="checkbox" id="wakeToggle" checked /> say “REACH”</label>
+    <label class="check"><input type="checkbox" id="ttsToggle" checked /> speak replies</label>
+    <a href="#" id="micSetup" class="hint">mic setup</a>
+  </div>
+
+  <section class="panel chat">
+    <div class="row space-between">
+      <h2>Conversation</h2>
+      <button id="newChat" class="tiny">New chat</button>
+    </div>
+    <div id="chatLog" class="chat-log"></div>
     <div class="row">
-      <button id="voiceBtn" class="voice-btn" data-state="idle"
-              aria-label="Activate REACH">🎙 Start REACH</button>
+      <input type="text" id="chatInput" placeholder="Talk to REACH…" />
+      <button id="chatSend" class="primary">Send</button>
     </div>
-    <div class="row">
-      <label class="check">
-        <input type="checkbox" id="wakeToggle" checked />
-        say “REACH” to activate
-      </label>
-      <label class="check">
-        <input type="checkbox" id="ttsToggle" checked />
-        speak replies
-      </label>
-    </div>
-    <div id="voiceStatus" class="voice-status" role="status" aria-live="polite"></div>
-    <div id="voiceTranscript" class="voice-transcript" aria-live="polite"></div>
-    <div class="hint">
-      Also: <kbd>Alt</kbd>+<kbd>R</kbd> &nbsp;·&nbsp;
-      <a href="#" id="micSetup">microphone setup</a>
-    </div>
+    <div id="sessionInfo" class="hint"></div>
   </section>
 
-  <section class="panel">
+  <div id="memoryPanel" class="mem-panel"></div>
+
+  <details id="adv">
+    <summary>Settings</summary>
     <div class="row">
       <input type="text" id="backend" placeholder="http://127.0.0.1:8080" />
-      <label class="check">
-        <input type="checkbox" id="askScreenshot" />
-        screenshot
-      </label>
-    </div>
-  </section>
-
-  <section class="panel">
-    <div class="row space-between">
-      <h2>Personalization</h2>
       <input type="text" id="userId" class="user-id" value="demo-user" title="user id" />
     </div>
     <div class="row">
@@ -82,87 +74,8 @@
         </select>
       </label>
     </div>
-  </section>
-
-  <section class="panel">
-    <div class="row space-between">
-      <h2>Conversation</h2>
-      <button id="newChat" class="tiny">New chat</button>
-    </div>
-    <div id="chatLog" class="chat-log"></div>
-    <div class="row">
-      <input type="text" id="chatInput" placeholder="Talk to REACH…  (try: open my electricity bill)" />
-      <button id="chatSend" class="primary">Send</button>
-    </div>
-    <div id="sessionInfo" class="hint"></div>
-  </section>
-
-  <section class="panel">
-    <div class="row space-between">
-      <h2>REACH memory</h2>
-      <button id="refreshMemory" class="tiny">Refresh</button>
-    </div>
-    <div id="memoryPanel" class="mem-panel">no memory of this site yet</div>
-  </section>
-
-  <section class="panel">
-    <h2>Autonomous task</h2>
-    <div class="row">
-      <input type="text" id="goal" placeholder="Goal for the multi-step loop" />
-    </div>
-    <div class="row">
-      <button id="runTask" class="primary">Run task</button>
-      <button id="stopTask" hidden>Stop</button>
-      <button id="ask">Single step</button>
-      <label class="check">
-        <input type="checkbox" id="autoRun" checked />
-        auto-run
-      </label>
-    </div>
-    <div id="loopLog" class="loop-log" hidden></div>
-    <div id="agentResult" class="agent-result" hidden></div>
-  </section>
-
-  <section class="panel">
-    <div class="row">
-      <button id="inspect" class="primary">Inspect Page</button>
-      <label class="check">
-        <input type="checkbox" id="withScreenshot" checked />
-        screenshot
-      </label>
-    </div>
-    <div id="thumbWrap" hidden>
-      <img id="thumb" alt="page screenshot" />
-    </div>
-  </section>
-
-  <section class="panel">
-    <h2>Execute action</h2>
-    <div class="row">
-      <select id="actionType">
-        <option value="CLICK">CLICK</option>
-        <option value="TYPE">TYPE</option>
-        <option value="SELECT">SELECT</option>
-        <option value="SCROLL">SCROLL</option>
-        <option value="BACK">BACK</option>
-      </select>
-    </div>
-    <div class="row" id="selectorRow">
-      <input type="text" id="selector" placeholder="CSS selector, e.g. #pay-button" />
-    </div>
-    <div class="row" id="valueRow" hidden>
-      <input type="text" id="value" placeholder="value to type / option to select" />
-    </div>
-    <div class="row" id="amountRow" hidden>
-      <input type="number" id="amount" value="600" step="100" />
-      <span class="hint">px</span>
-    </div>
-    <div class="row">
-      <button id="run" class="primary">Run action</button>
-    </div>
-  </section>
-
-  <pre id="output">Click "Inspect Page" to see URL, text, buttons, links, inputs, ARIA and a screenshot.</pre>
+    <button id="refreshMemory" class="tiny">Refresh memory</button>
+  </details>
 
   <script src="popup.js"></script>
 </body>

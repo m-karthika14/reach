@@ -1,7 +1,6 @@
-// REACH popup (Phase 1).
-// Drives two things against the active tab's content script:
-//   - GET_PAGE_CONTEXT  (+ optional screenshot via the service worker)
-//   - EXECUTE_ACTION     (CLICK / TYPE / SELECT / SCROLL / BACK)
+// REACH popup — voice + conversation UI.
+//   voice (wake word "REACH") / text  ->  POST /chat  ->  speak + act on the page
+//   personalization + memory panels are tucked into <details id="adv">.
 
 const $ = (id) => document.getElementById(id);
 
@@ -27,15 +26,6 @@ const storageLocal = (() => {
     }
   };
 })();
-
-const output = $("output");
-const thumbWrap = $("thumbWrap");
-const thumb = $("thumb");
-
-function print(value) {
-  output.textContent =
-    typeof value === "string" ? value : JSON.stringify(value, null, 2);
-}
 
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -66,86 +56,17 @@ function captureScreenshot(windowId) {
   });
 }
 
-// ---- Inspect ---------------------------------------------------------------
+// ---- config --------------------------------------------------------------
 
-$("inspect").addEventListener("click", async () => {
-  print("Inspecting...");
-  thumbWrap.hidden = true;
-
-  const tab = await activeTab();
-  if (!tab?.id) return print("No active tab.");
-
-  const page = await sendToTab(tab.id, { type: "GET_PAGE_CONTEXT" });
-  if (page?.__error) {
-    return print(
-      "Could not inspect this page.\n\n" +
-        page.__error +
-        "\n\nThe content script does not run on chrome:// pages, the Web Store, " +
-        "or PDF viewer. Try a normal http(s) page or the demo-site."
-    );
-  }
-
-  let screenshotInfo = "skipped";
-  if ($("withScreenshot").checked) {
-    const shot = await captureScreenshot(tab.windowId);
-    if (shot?.success && shot.dataUrl) {
-      screenshotInfo = `captured (${Math.round(shot.dataUrl.length / 1024)} KB base64)`;
-      thumb.src = shot.dataUrl;
-      thumbWrap.hidden = false;
-    } else {
-      screenshotInfo = `failed: ${shot?.error || "unknown"}`;
-    }
-  }
-
-  print({
-    screenshot: screenshotInfo,
-    page
-  });
-});
-
-// ---- Action form ---------------------------------------------------------------
-
-const actionType = $("actionType");
-const selectorRow = $("selectorRow");
-const valueRow = $("valueRow");
-const amountRow = $("amountRow");
-
-function syncActionForm() {
-  const type = actionType.value;
-  selectorRow.hidden = type === "SCROLL" || type === "BACK";
-  valueRow.hidden = !(type === "TYPE" || type === "SELECT");
-  amountRow.hidden = type !== "SCROLL";
-}
-actionType.addEventListener("change", syncActionForm);
-syncActionForm();
-
-// ---- Ask REACH (goal -> backend -> Gemini -> action) ------------------------
-
-const CONFIDENCE_GATE = 0.8;
 const DEFAULT_BACKEND = "http://127.0.0.1:8080";
-
 const backendInput = $("backend");
-const goalInput = $("goal");
-const agentResult = $("agentResult");
 
-// Restore saved backend URL + goal.
-storageLocal.get(["backend", "goal"], (saved) => {
+storageLocal.get(["backend"], (saved) => {
   backendInput.value = saved.backend || DEFAULT_BACKEND;
-  if (saved.goal) goalInput.value = saved.goal;
 });
 backendInput.addEventListener("change", () =>
   storageLocal.set({ backend: backendInput.value.trim() })
 );
-goalInput.addEventListener("change", () =>
-  storageLocal.set({ goal: goalInput.value.trim() })
-);
-
-function showAgent(kind, verdict, detailHtml) {
-  agentResult.hidden = false;
-  agentResult.className = "agent-result " + kind;
-  agentResult.innerHTML =
-    `<div class="verdict">${verdict}</div>` + (detailHtml || "");
-}
 
 const ACTION_MAP = { click: "CLICK", type: "TYPE", select: "SELECT", scroll: "SCROLL", back: "BACK" };
 
@@ -228,8 +149,8 @@ storageLocal.get(["reach_user_id"], (s) => {
 const memoryPanel = $("memoryPanel");
 
 function renderMemory(mem) {
-  if (!mem || (!mem.page_memory?.length && !mem.corrections?.length && !mem.preferences?.length)) {
-    memoryPanel.textContent = "no memory of this site yet";
+  if (!mem || (!mem.page_memory?.length && !mem.corrections?.length)) {
+    memoryPanel.textContent = "";
     return;
   }
   const esc = (s) => String(s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
@@ -446,7 +367,7 @@ const LANG_TAG = { en: "en-US", kn: "kn-IN", hi: "hi-IN", ta: "ta-IN", te: "te-I
 const WAKE = /\b(reach|reache|reech|rich|reece|preach|beach|each|hey reach|ok reach|okay reach)\b/i;
 
 // Strict allowlists - unclear speech is NEVER a confirmation (Step 12.13).
-const AFFIRM = /^\s*(yes|yeah|yep|yup|yidhu|sure|ok|okay|do it|go ahead|confirm|proceed|correct|please do|haudu|haan)\b/i;
+const AFFIRM = /^\s*(yes|yeah|yep|yup|yidhu|sure|ok|okay|k|do it|go ahead|confirm|confirmed|proceed|pay|pay it|pay now|correct|please do|approved?|haudu|haan)\b/i;
 const NEGATIVE = /^\s*(no|nope|nah|don'?t|do not|cancel|stop|illa|nahi)\b/i;
 
 let recognition = null;   // command / confirmation recognizer (one-shot)
@@ -455,21 +376,26 @@ let voiceState = "idle";
 let listenTimer = null;
 let awaitingConfirm = false;
 let wakeArmed = false;     // wakeRec is currently running
+let voiceGoal = null;          // the task the user asked for (carried across steps)
+let voiceApprovedTask = false; // user already said "yes" to this task
+let voiceSteps = 0;            // hard cap on autonomous continuation steps
+let voiceBusy = false;         // a follow-up turn is in flight
+let voiceVerifyRetries = 0;    // re-checks while a payment page is still settling
 
-const STATE_LABEL = {
-  idle: "🎙 Start REACH",
-  waiting: "👂 Say “REACH”",
-  listening: "🔴 Listening… (click to stop)",
-  processing: "⏳ REACH is thinking…",
-  speaking: "🔊 REACH is responding… (click to stop)",
-  error: "⚠ Voice — click to retry"
+const STATE_ICON = {
+  idle: "🎙", waiting: "👂", listening: "🔴", processing: "⏳", speaking: "🔊", error: "⚠"
+};
+const STATE_ARIA = {
+  idle: "Start REACH", waiting: "Listening for “REACH”", listening: "Listening — click to stop",
+  processing: "REACH is thinking", speaking: "REACH is speaking — click to stop", error: "Voice error — click to retry"
 };
 
 function setVoiceState(s, statusMsg) {
   voiceState = s;
   voiceBtn.dataset.state = s;
-  voiceBtn.textContent = STATE_LABEL[s] || STATE_LABEL.idle;
-  voiceBtn.setAttribute("aria-label", STATE_LABEL[s] || "Activate REACH");
+  voiceBtn.textContent = STATE_ICON[s] || STATE_ICON.idle;
+  voiceBtn.setAttribute("aria-label", STATE_ARIA[s] || "Activate REACH");
+  voiceBtn.title = STATE_ARIA[s] || "";
   if (statusMsg !== undefined) voiceStatus.textContent = statusMsg;
 }
 
@@ -508,6 +434,7 @@ function startWake() {
       voiceTranscript.textContent = "";
       if (rest.split(/\s+/).length >= 2) {
         setVoiceState("processing", "REACH is processing your request.");
+        voiceGoal = rest; voiceApprovedTask = false; voiceSteps = 0;
         submitMessage(rest).then(handleReply);
       } else {
         speak("Yes?", { onend: () => startListening(false) });
@@ -604,8 +531,8 @@ function startListening(forConfirm = false) {
 
     if (awaitingConfirm) {
       awaitingConfirm = false;
-      if (AFFIRM.test(text)) return handleReply(await submitMessage("yes"));
-      if (NEGATIVE.test(text)) return handleReply(await submitMessage("no"));
+      if (AFFIRM.test(text)) { voiceApprovedTask = true; return handleReply(await submitMessage("yes")); }
+      if (NEGATIVE.test(text)) { voiceGoal = null; return handleReply(await submitMessage("no")); }
       // Ambiguous during a confirmation -> do NOT act (Step 12.13 / 12.34).
       speak("I didn't catch a clear yes or no, so I won't proceed. Please say yes or no.",
         { onend: () => startListening(true) });
@@ -613,6 +540,9 @@ function startListening(forConfirm = false) {
     }
 
     setVoiceState("processing", "REACH is processing your request.");
+    voiceGoal = text;          // remember the task so we can carry it across steps
+    voiceApprovedTask = false;
+    voiceSteps = 0;
     handleReply(await submitMessage(text));
   };
 
@@ -625,32 +555,65 @@ function startListening(forConfirm = false) {
   listenTimer = setTimeout(() => { try { recognition.stop(); } catch (e) { /* noop */ } }, 9000);
 }
 
-let voiceAutoVerify = false;   // guard: only one auto follow-up per action
-
 async function handleReply(r) {
   if (!r) return restVoice();
 
   if (r.requires_confirmation) {
-    speak(r.message, { onend: () => startListening(true) });
+    // Same task the user already approved by voice -> proceed without re-asking.
+    if (voiceApprovedTask) {
+      speak(r.message, { onend: async () => { await handleReply(await submitMessage("yes")); } });
+    } else {
+      speak(r.message, { onend: () => startListening(true) });
+    }
     return;
   }
 
-  // Just executed a browser action (e.g. paying) -> speak progress, then let the
-  // page settle and automatically verify + speak the outcome. No user turn needed.
-  if (lastTurnExecuted && !voiceAutoVerify) {
-    voiceAutoVerify = true;
+  // A browser action just ran (navigate / pay / click). Speak progress, let the
+  // page settle, then re-issue the SAME goal so a multi-step task finishes.
+  // The re-issued turn also carries the verification of the step just done.
+  if (lastTurnExecuted && !voiceBusy && voiceSteps < 5) {
+    voiceBusy = true;
+    voiceSteps += 1;
     speak(r.message || "Working on it.", {
       onend: () => setTimeout(async () => {
-        setVoiceState("processing", "Checking the result…");
-        const v = await submitMessage("did it work?");
-        voiceAutoVerify = false;
+        setVoiceState("processing", voiceSteps > 1 ? "Continuing…" : "Working…");
+        const v = await submitMessage(voiceGoal || "did it work?");
+        voiceBusy = false;
         await handleReply(v);
-      }, 1800)
+      }, 3000)
     });
     return;
   }
 
-  speak(r.message, { onend: () => restVoice("REACH finished.") });
+  // Terminal — report the verified outcome of the task.
+  const vs = r.verification_status;
+
+  // If the page is still redirecting / opening Razorpay, that's not a real
+  // AMBIGUOUS yet — wait and re-check (payment flows take ~10-20s).
+  const stillSettling = vs && vs.status === "AMBIGUOUS" &&
+    /loading|redirect|processing|opening|intermediate|not yet|in an? .*state|pending/i.test(
+      (vs.reason || "") + " " + (vs.evidence || []).join(" "));
+  if (stillSettling && !voiceBusy && voiceVerifyRetries < 4) {
+    voiceVerifyRetries += 1;
+    voiceBusy = true;
+    setVoiceState("processing", "Waiting for the payment to finish…");
+    setTimeout(async () => {
+      const v = await submitMessage(voiceGoal || "did it work?");
+      voiceBusy = false;
+      await handleReply(v);
+    }, 5000);
+    return;
+  }
+
+  voiceGoal = null; voiceApprovedTask = false; voiceSteps = 0; voiceVerifyRetries = 0;
+  if (vs && vs.status === "VERIFIED") {
+    speak("Done. " + (vs.reason || ""), { onend: () => restVoice("Done.") });
+  } else if (vs && vs.status === "AMBIGUOUS") {
+    speak("I can't confirm the payment finished, so I won't retry it. " + (vs.reason || ""),
+      { onend: () => restVoice("Couldn't confirm.") });
+  } else {
+    speak(r.message, { onend: () => restVoice("REACH finished.") });
+  }
 }
 
 function openMicSetup() {
@@ -684,300 +647,3 @@ storageLocal.get(["reach_voice_pending"], (s) => {
   else setVoiceState("idle", "Press the mic or Alt+R and speak your request.");
 });
 
-$("ask").addEventListener("click", async () => {
-  const goal = goalInput.value.trim();
-  if (!goal) return showAgent("err", "Enter a goal first.");
-
-  const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
-  storageLocal.set({ goal, backend });
-
-  showAgent("hold", "Thinking…", "");
-
-  const tab = await activeTab();
-  if (!tab?.id) return showAgent("err", "No active tab.");
-
-  const page = await sendToTab(tab.id, { type: "GET_PAGE_CONTEXT" });
-  if (page?.__error) {
-    return showAgent("err", "Cannot read this page.", `<div>${page.__error}</div>`);
-  }
-
-  let screenshot = null;
-  if ($("askScreenshot").checked) {
-    const shot = await captureScreenshot(tab.windowId);
-    if (shot?.success) screenshot = shot.dataUrl;
-  }
-
-  let action;
-  try {
-    const resp = await fetch(backend + "/agent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ goal, url: page.url, dom: JSON.stringify(page), screenshot })
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      return showAgent("err", `Backend ${resp.status}`, `<div>${text}</div>`);
-    }
-    action = await resp.json();
-  } catch (e) {
-    return showAgent(
-      "err",
-      "Could not reach the backend.",
-      `<div>${e}</div><div>Is uvicorn running at <code>${backend}</code>?</div>`
-    );
-  }
-
-  const pct = Math.round((action.confidence ?? 0) * 100);
-  const detail =
-    `<div>action: <code>${action.action}</code>` +
-    (action.target ? ` target: <code>${action.target}</code>` : "") +
-    (action.value != null ? ` value: <code>${action.value}</code>` : "") +
-    `</div><div>confidence: <code>${pct}%</code></div>` +
-    (action.reasoning ? `<div>${action.reasoning}</div>` : "");
-
-  if (action.action === "none") {
-    return showAgent("hold", "REACH will not act here.", detail);
-  }
-  if ((action.confidence ?? 0) < CONFIDENCE_GATE) {
-    return showAgent("hold", `Not confident enough (< ${CONFIDENCE_GATE * 100}%).`, detail);
-  }
-  if (!$("autoRun").checked) {
-    return showAgent("ok", "Ready to run (auto-run off).", detail);
-  }
-
-  // Confidence gate passed -> execute via the Phase 1 action engine.
-  const message = { type: "EXECUTE_ACTION", action: ACTION_MAP[action.action] };
-  if (action.target) message.selector = action.target;
-  if (action.value != null) message.value = action.value;
-  if (action.action === "scroll") message.amount = 600;
-
-  const result = await sendToTab(tab.id, message);
-  const ok = result && result.success;
-  showAgent(
-    ok ? "ok" : "err",
-    ok ? `Executed ${action.action}. Verifying…` : `Execution failed.`,
-    detail + `<div>result: <code>${JSON.stringify(result)}</code></div>`
-  );
-  if (!ok) return;
-
-  // Verification Agent: re-inspect the page and ask the backend if the goal advanced.
-  await new Promise((r) => setTimeout(r, 900));
-  const afterPage = await sendToTab(tab.id, { type: "GET_PAGE_CONTEXT" });
-  if (afterPage?.__error) return;
-
-  try {
-    const vResp = await fetch(backend + "/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        goal,
-        action,
-        before_dom: JSON.stringify(page),
-        after_dom: JSON.stringify(afterPage),
-        after_url: afterPage.url
-      })
-    });
-    if (!vResp.ok) return;
-    const v = await vResp.json();
-    showAgent(
-      v.success ? "ok" : "hold",
-      v.success ? `Verified: ${action.action} achieved the goal.` : "Could not verify the goal.",
-      detail +
-        `<div>result: <code>${JSON.stringify(result)}</code></div>` +
-        `<div>verification: <code>${v.success}</code> — ${v.reason || ""}</div>`
-    );
-  } catch (e) {
-    /* verification is best-effort; leave the "Executed" state as-is */
-  }
-});
-
-// ---- Run task (Phase 4 autonomous loop) -----------------------------------
-
-const MAX_CLIENT_STEPS = 8;
-const SETTLE_MS = 1000;
-const LOOP_STOP = ["blocked", "failed", "ambiguous", "max_steps_reached", "repeated_action", "low_confidence"];
-
-const runTaskBtn = $("runTask");
-const stopTaskBtn = $("stopTask");
-const loopLog = $("loopLog");
-let loopAbort = false;
-
-function logLine(kind, text) {
-  const el = document.createElement("div");
-  el.className = "loop-line " + (kind || "");
-  el.textContent = text;
-  loopLog.appendChild(el);
-  loopLog.scrollTop = loopLog.scrollHeight;
-}
-
-function askApproval() {
-  return new Promise((resolve) => {
-    const wrap = document.createElement("div");
-    wrap.className = "loop-line approve";
-    const yes = document.createElement("button");
-    yes.textContent = "Approve";
-    yes.className = "primary";
-    const no = document.createElement("button");
-    no.textContent = "Cancel";
-    yes.onclick = () => { wrap.remove(); resolve(true); };
-    no.onclick = () => { wrap.remove(); resolve(false); };
-    wrap.append(yes, no);
-    loopLog.appendChild(wrap);
-    loopLog.scrollTop = loopLog.scrollHeight;
-  });
-}
-
-function endLoop() {
-  runTaskBtn.disabled = false;
-  stopTaskBtn.hidden = true;
-  loopAbort = false;
-}
-
-stopTaskBtn.addEventListener("click", () => {
-  loopAbort = true;
-  stopTaskBtn.disabled = true;
-  logLine("hold", "⏹ Stop requested — halting after this step.");
-});
-
-function describe(step) {
-  return (
-    `${step.action}` +
-    (step.target ? ` ${step.target}` : "") +
-    (step.value != null ? ` = ${step.value}` : "") +
-    ` (${Math.round((step.confidence ?? 0) * 100)}%` +
-    (step.vision_used ? ", vision 👁" : step.perception_mode ? ", structure" : "") +
-    (step.reconciliation ? `, reconcile ${step.reconciliation.status}` : "") +
-    `)`
-  );
-}
-
-runTaskBtn.addEventListener("click", async () => {
-  const goal = goalInput.value.trim();
-  if (!goal) return;
-  const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
-  storageLocal.set({ goal, backend });
-
-  agentResult.hidden = true;
-  loopLog.hidden = false;
-  loopLog.innerHTML = "";
-  loopAbort = false;
-  runTaskBtn.disabled = true;
-  stopTaskBtn.hidden = false;
-  stopTaskBtn.disabled = false;
-  logLine("head", `Goal: ${goal}`);
-
-  const tab = await activeTab();
-  if (!tab?.id) { logLine("err", "No active tab."); return endLoop(); }
-
-  let history = [];
-  let prevDom = null;
-  let lastAction = null;
-
-  try {
-    for (let i = 0; i < MAX_CLIENT_STEPS; i++) {
-      if (loopAbort) { logLine("hold", "Cancelled by user."); break; }
-
-      const page = await sendToTab(tab.id, { type: "GET_PAGE_CONTEXT" });
-      if (page?.__error) { logLine("err", "Cannot read page: " + page.__error); break; }
-      const dom = JSON.stringify(page);
-
-      let screenshot = null;
-      const shot = await captureScreenshot(tab.windowId);
-      if (shot?.success) screenshot = shot.dataUrl;
-
-      let step;
-      try {
-        const r = await fetch(backend + "/agent/loop", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            goal,
-            url: page.url,
-            dom,
-            screenshot,
-            history,
-            prev_dom: prevDom,
-            last_action: lastAction,
-            max_steps: MAX_CLIENT_STEPS
-          })
-        });
-        if (!r.ok) { logLine("err", `Backend ${r.status}: ${await r.text()}`); break; }
-        step = await r.json();
-      } catch (e) {
-        logLine("err", "Could not reach backend: " + e);
-        break;
-      }
-
-      const label = `Step ${step.step}/${MAX_CLIENT_STEPS} · ${step.status}`;
-
-      if (step.status === "completed") {
-        logLine("ok", `✅ ${label} — ${step.reason || "goal achieved"}`);
-        break;
-      }
-      if (LOOP_STOP.includes(step.status)) {
-        logLine("err", `⛔ ${label} — ${step.reason || ""}`);
-        break;
-      }
-
-      if (step.status === "needs_confirmation") {
-        logLine("hold", `⚠ ${label} — wants: ${describe(step)}`);
-        if (step.reason) logLine("hold", step.reason);
-        const ok = await askApproval();
-        if (!ok) { logLine("hold", "Declined — stopping."); break; }
-      } else {
-        logLine("", `${label} — ${describe(step)}`);
-        if (step.reason) logLine("dim", step.reason);
-      }
-
-      if (step.action === "none") { logLine("err", "No executable action returned."); break; }
-
-      const msg = { type: "EXECUTE_ACTION", action: ACTION_MAP[step.action] };
-      if (step.target) msg.selector = step.target;
-      if (step.value != null) msg.value = step.value;
-      if (step.action === "scroll") msg.amount = 600;
-
-      const result = await sendToTab(tab.id, msg);
-      if (!result || !result.success) {
-        logLine("err", "Execution failed: " + JSON.stringify(result));
-        break;
-      }
-      logLine("dim", `↳ executed ${step.action}`);
-
-      history.push({ step: step.step, action: step.action, target: step.target, value: step.value });
-      prevDom = dom;
-      lastAction = { action: step.action, target: step.target, value: step.value };
-
-      await new Promise((r) => setTimeout(r, SETTLE_MS));
-      if (i === MAX_CLIENT_STEPS - 1) logLine("err", "Reached client step cap.");
-    }
-  } finally {
-    endLoop();
-  }
-});
-
-$("run").addEventListener("click", async () => {
-  const tab = await activeTab();
-  if (!tab?.id) return print("No active tab.");
-
-  const type = actionType.value;
-  const message = { type: "EXECUTE_ACTION", action: type };
-
-  if (type !== "SCROLL" && type !== "BACK") {
-    const sel = $("selector").value.trim();
-    if (!sel) return print('Enter a CSS selector first (e.g. "#pay-button").');
-    message.selector = sel;
-  }
-  if (type === "TYPE" || type === "SELECT") {
-    message.value = $("value").value;
-  }
-  if (type === "SCROLL") {
-    message.amount = Number($("amount").value) || 600;
-  }
-
-  print(`Running ${type}...`);
-  const result = await sendToTab(tab.id, message);
-  if (result?.__error) {
-    return print("Action failed to reach the page.\n\n" + result.__error);
-  }
-  print(result);
-});

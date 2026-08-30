@@ -379,7 +379,13 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                         action = resp
                         requires_confirmation = True
                         amount = _extract_amount(req.dom)
-                        amount_bit = f" This will pay {amount}." if amount else ""
+                        is_pay = "pay" in (state.user_goal or req.message).lower()
+                        if amount and is_pay:
+                            amount_bit = f" This will pay {amount} through Razorpay."
+                        elif amount:
+                            amount_bit = f" This affects {amount}."
+                        else:
+                            amount_bit = ""
                         reply = (
                             f"That's a consequential action ({risk}).{amount_bit} "
                             f"Say \"yes\" to go ahead."

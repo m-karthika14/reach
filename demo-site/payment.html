@@ -4,8 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>REACH Energy — Payment</title>
-  <link rel="stylesheet" href="styles.css" />
-  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <link rel="stylesheet" href="styles.css?v=13" />
 </head>
 <body>
   <div id="chrome"></div>
@@ -49,7 +48,7 @@
 
   <footer>Payments processed via Razorpay <strong>Test Mode</strong> — no real money moves.</footer>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=13"></script>
   <script>
     document.getElementById("chrome").innerHTML = topbar("payment.html");
     document.getElementById("demoCtl").innerHTML = demoControls();
@@ -61,51 +60,34 @@
     const sc = scenario();
     const slot = document.getElementById("paySlot");
 
+    // ONE pay button. Real Razorpay order + server-side capture (no card/OTP UI).
+    // Only the DOM *semantics* of the button change per scenario.
     function pay() {
       simulatePipeline(sc);
-      payAuto(BILL.amount, BILL.consumer);          // autonomous — no card UI
-    }
-    function payManual() {
-      simulatePipeline(sc);
-      payWithRazorpay(BILL.amount, BILL.consumer);  // real Razorpay Checkout modal
+      payAuto(BILL.amount, BILL.consumer);
     }
 
     if (sc === "conflict") {
-      // Looks like "Pay Now"; accessible name is "Cancel"; does NOT pay.
-      slot.innerHTML =
-        '<button id="pay-trap" class="btn pay-lg" aria-label="Cancel">Pay Now</button>';
-      document.getElementById("pay-trap").onclick = () => {
-        simulatePipeline("conflict");
-        setStatus("warn", "This control was cancelled. (Its accessible name is “Cancel”.)");
-      };
-      setStatus("", "Scenario: Structure/Vision conflict — REACH should refuse this button.");
+      // Same button, but its accessible name lies ("Cancel") — REACH must refuse.
+      slot.innerHTML = '<button id="pay" class="btn pay-lg" aria-label="Cancel">Pay Now</button>';
+      document.getElementById("pay").onclick = pay;
+      setStatus("", "Scenario: the pay button is labelled “Cancel” in the DOM — REACH should refuse it.");
     } else if (sc === "ambiguous") {
+      // Same button, but it gets stuck: no receipt, no transaction id -> AMBIGUOUS.
       slot.innerHTML = '<button id="pay" class="btn pay-lg" aria-label="button">💳</button>';
       document.getElementById("pay").onclick = () => {
         simulatePipeline("ambiguous");
         document.getElementById("processingCard").hidden = false;
         setStatus("warn", "Payment submitted — waiting for confirmation…");
-        // never resolves: no receipt, no transaction id  -> Verification = AMBIGUOUS
       };
-    } else if (sc === "success") {
-      slot.innerHTML = '<button id="pay" class="btn pay-lg" aria-label="button">💳</button>';
-      document.getElementById("pay").onclick = () => {
-        simulatePipeline("success");
-        finishPayment("order_demo_" + Date.now(), "pay_" + Math.random().toString(36).slice(2, 14), "");
-      };
+      setStatus("", "Scenario: the payment stalls with no confirmation — verification should be AMBIGUOUS.");
     } else if (sc === "vision") {
-      slot.innerHTML =
-        '<button id="pay" class="btn pay-lg" aria-label="button">💳</button>' +
-        '<div style="margin-top:8px"><a href="#" id="manual">Open Razorpay checkout instead →</a></div>';
+      slot.innerHTML = '<button id="pay" class="btn pay-lg" aria-label="button">💳</button>';
       document.getElementById("pay").onclick = pay;
-      document.getElementById("manual").onclick = (e) => { e.preventDefault(); payManual(); };
-      setStatus("", "Scenario: icon-only control — Structure is unsure, Vision resolves it.");
+      setStatus("", "Scenario: icon-only pay button — Structure is unsure, Vision resolves it.");
     } else {
-      slot.innerHTML =
-        '<button id="pay" class="btn pay-lg">💳  Pay ' + money(BILL.amount) + '</button>' +
-        '<div style="margin-top:8px"><a href="#" id="manual">Open Razorpay checkout instead →</a></div>';
+      slot.innerHTML = '<button id="pay" class="btn pay-lg">💳  Pay ' + money(BILL.amount) + '</button>';
       document.getElementById("pay").onclick = pay;
-      document.getElementById("manual").onclick = (e) => { e.preventDefault(); payManual(); };
     }
   </script>
 </body>

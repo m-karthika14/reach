@@ -53,9 +53,14 @@ NEW USER MESSAGE:
 {s.get("message")}
 
 Classify the new message:
-- "command": stop / cancel / pause / continue / resume / yes / ok / no / don't /
-  try again / retry / do it again. Set "command" to one of
-  stop|continue|pause|yes|no|retry.
+- "command": stop / cancel / pause / continue / resume / no / don't. Also a BARE
+  "try again" / "retry" / "do it again" / "again" with NO task named -> command
+  = "retry". Also an approval of a PENDING CONFIRMATION: yes / yeah / ok / okay /
+  sure / go ahead / do it / proceed / confirm / "pay" / "pay it" -> command =
+  "yes". Set "command" to one of stop|continue|pause|yes|no|retry.
+  A full task restatement like "pay my electricity bill" is NOT a command - it is
+  "new_goal" (or "reference" if it continues the current goal), even right after
+  a failure.
 - "status_query": the user is asking whether the last action worked
   ("did it work?", "did it go through?", "what happened?"). Set a reply that
   answers from LAST VERIFICATION.

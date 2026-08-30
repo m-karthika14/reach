@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>REACH Energy — Electricity Bill</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=13" />
 </head>
 <body>
   <div id="chrome"></div>
@@ -63,7 +63,7 @@
 
   <footer>REACH Energy · controlled demo portal</footer>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=13"></script>
   <script>
     document.getElementById("chrome").innerHTML = topbar("bill.html");
     document.getElementById("demoCtl").innerHTML = demoControls();
@@ -71,7 +71,10 @@
     Activity.mount(document.getElementById("steps"));
     document.getElementById("amt").textContent = money(BILL.amount);
 
-    document.getElementById("pay").onclick = () => (location.href = "payment.html");
+    document.getElementById("pay").onclick = () => {
+      simulatePipeline(scenario());
+      payAuto(BILL.amount, BILL.consumer);   // pay directly — don't navigate
+    };
     document.getElementById("download").onclick = () => setStatus("ok", "Bill PDF downloaded.");
     document.getElementById("history").onclick = () => {
       document.getElementById("historyCard").hidden = false;

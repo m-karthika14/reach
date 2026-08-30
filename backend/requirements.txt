@@ -5,4 +5,4 @@ python-dotenv==1.2.3
 google-cloud-aiplatform==2.0.1
 google-cloud-firestore==2.29.0
 google-adk==2.8.0
-razorpay==1.4.2
+razorpay==2.0.1

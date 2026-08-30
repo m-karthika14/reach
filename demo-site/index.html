@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>REACH Energy — Account</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=13" />
 </head>
 <body>
   <div id="chrome"></div>
@@ -57,7 +57,7 @@
 
   <footer>REACH Energy is a controlled demo portal. Payments run through Razorpay <strong>Test Mode</strong>.</footer>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=13"></script>
   <script>
     document.getElementById("chrome").innerHTML = topbar("index.html");
     document.getElementById("demoCtl").innerHTML = demoControls();
@@ -70,7 +70,11 @@
     document.getElementById("nav-bills").onclick = go("bill.html");
     document.getElementById("nav-account").onclick = () => setStatus("", "Account");
     document.getElementById("nav-pay").onclick = go("payment.html");
-    document.getElementById("pay").onclick = () => { setStatus("", "Opening payment…"); go("payment.html")(); };
+    // The hero 💳 is THE pay button.
+    document.getElementById("pay").onclick = () => {
+      simulatePipeline(scenario());
+      payAuto(BILL.amount, BILL.consumer);
+    };
   </script>
 </body>
 </html>
