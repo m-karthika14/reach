@@ -197,9 +197,40 @@ $("ask").addEventListener("click", async () => {
   const ok = result && result.success;
   showAgent(
     ok ? "ok" : "err",
-    ok ? `Executed ${action.action}.` : `Execution failed.`,
+    ok ? `Executed ${action.action}. Verifying…` : `Execution failed.`,
     detail + `<div>result: <code>${JSON.stringify(result)}</code></div>`
   );
+  if (!ok) return;
+
+  // Verification Agent: re-inspect the page and ask the backend if the goal advanced.
+  await new Promise((r) => setTimeout(r, 900));
+  const afterPage = await sendToTab(tab.id, { type: "GET_PAGE_CONTEXT" });
+  if (afterPage?.__error) return;
+
+  try {
+    const vResp = await fetch(backend + "/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        goal,
+        action,
+        before_dom: JSON.stringify(page),
+        after_dom: JSON.stringify(afterPage),
+        after_url: afterPage.url
+      })
+    });
+    if (!vResp.ok) return;
+    const v = await vResp.json();
+    showAgent(
+      v.success ? "ok" : "hold",
+      v.success ? `Verified: ${action.action} achieved the goal.` : "Could not verify the goal.",
+      detail +
+        `<div>result: <code>${JSON.stringify(result)}</code></div>` +
+        `<div>verification: <code>${v.success}</code> — ${v.reason || ""}</div>`
+    );
+  } catch (e) {
+    /* verification is best-effort; leave the "Executed" state as-is */
+  }
 });
 
 $("run").addEventListener("click", async () => {

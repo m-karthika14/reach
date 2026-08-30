@@ -1,19 +1,51 @@
-# REACH Backend — Phase 2
+# REACH Backend — Phase 3
 
-`goal + page context` → **Gemini 3.5 Flash** → one structured browser action.
+FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`).
 
-No ADK / Firestore / RAG / vision yet — those are Phase 3+.
+`main.py` is only the HTTP boundary. All reasoning/orchestration lives in `agents/`.
 
-## Files
+```
+POST /agent    goal + page context   ->  Root Agent [ perception -> action ]  ->  one action
+POST /verify   before + action + after ->  Verification Agent                  ->  {success, reason}
+GET  /health
+```
 
-| File | Role |
+## Architecture
+
+```
+                       ROOT AGENT  (SequentialAgent, shared session state)
+                            |
+              +-------------+-------------+
+              v                           v
+      PERCEPTION AGENT              ACTION AGENT
+   page_type + relevant_elements   click/type/select/scroll/back/none
+              \___________________________/
+                            |
+                   gemini._normalize        <- Phase 2 safety layer, kept
+                   (allowed action, no invented selector, confidence)
+                            |
+                      AgentResponse
+
+      VERIFICATION AGENT  (separate turn, after the extension re-inspects)
+      goal + before + action + after  ->  { success, reason }
+```
+
+| Path | Role |
 | --- | --- |
-| `models.py` | `AgentRequest` / `AgentResponse` contract |
-| `gemini.py` | Vertex AI call (`gemini-3.5-flash`, `asia-south1`), page summariser, safety normalisation |
-| `main.py` | FastAPI: `GET /health`, `POST /agent` |
-| `test_agent.py` | manual local test against a running server |
-| `Dockerfile` / `.dockerignore` | Cloud Run container |
-| `deploy.ps1` | build + deploy to Cloud Run (run only after local works) |
+| `agents/config.py` | ADK→Vertex env wiring, `MODEL = "gemini-3.5-flash"` |
+| `agents/schemas.py` | agent-to-agent typed outputs (`PerceptionResult`, `ActionDecision`, `VerificationResult`) |
+| `agents/perception_agent.py` | LlmAgent, `output_key="perception"` |
+| `agents/action_agent.py` | LlmAgent, `output_key="action"` |
+| `agents/verification_agent.py` | LlmAgent, `output_key="verification"` |
+| `agents/root_agent.py` | `SequentialAgent`, ADK `Runner` + `InMemorySessionService`, orchestration logging, `run_agent()` / `run_verification()` |
+| `tools/page_context.py` | `summarize_page_context` FunctionTool |
+| `tools/action_tools.py` | `click_element` / `type_text` / `select_option` / `scroll_page` / `go_back` → structured action requests |
+| `tools/verification_tools.py` | `compare_page_states` FunctionTool |
+| `memory/` | reserved for Phase 5 (Firestore). Not implemented. |
+| `gemini.py` | page summariser + `_normalize` safety layer (reused by the agents); `ask_gemini` kept as a fallback if the ADK pipeline throws |
+| `models.py` | HTTP contract: `AgentRequest/Response`, `VerifyRequest/Response` |
+
+Each `/agent` call = **2 Gemini calls** (perception, then action). `/verify` = 1.
 
 ## Run locally
 
@@ -24,47 +56,43 @@ $env:GOOGLE_CLOUD_PROJECT = "reach-agent-507107"
 python -m uvicorn main:app --reload --port 8080
 ```
 
-(Use `python -m uvicorn`, not the bare `uvicorn` shim — the `.exe` shim on this
-machine is pinned to a different interpreter.)
+(`python -m uvicorn`, not the bare shim.) ADK routes through Vertex because
+`config.py` sets `GOOGLE_GENAI_USE_VERTEXAI=TRUE` + `GOOGLE_CLOUD_LOCATION=asia-south1`.
 
-Auth uses your existing `gcloud` Application Default Credentials.
+## Orchestration log (demo-ready)
 
-## Test
-
-```powershell
-# health
-curl http://127.0.0.1:8080/health
-
-# agent (in another shell, server running)
-python test_agent.py
+```
+reach.adk: [ROOT] goal='open my electricity bill' url='file:///d' (2 known selectors)
+reach.adk: [ACT] perception_agent emitted output
+reach.adk: [ACT] action_agent emitted output
+reach.adk: [PERCEPTION] {'page_type': 'billing', 'relevant_elements': [{'selector': '#view-bill', ...}]}
+reach.adk: [ACTION] raw {'action': 'click', 'target': '#view-bill', 'confidence': 1.0, ...}
+reach.adk: [ROOT] -> action=click target=#view-bill confidence=1.00
+reach.adk: [VERIFICATION] -> {'success': True, 'reason': "URL changed to .../bill and 'Amount Due' is shown"}
 ```
 
-Verified live responses:
+## Verified locally
 
-| Goal | Response |
+| Goal | `/agent` result |
 | --- | --- |
 | Open my electricity bill | `click #view-bill` (1.0) |
-| Enter my email demo@example.com | `type #email` = `demo@example.com` (1.0) |
-| Set the language to Kannada | `select #language` = `kannada` (1.0) |
-| Buy me a plane ticket to Paris | `none` (0.0) |
+| Set language to Kannada | `select #language` = `kannada` (1.0) |
+| Buy a plane ticket to Paris | `none` (0.0) |
+| click #ghost-button | `none` (invented selector refused) |
 
-## Safety normalisation (in `gemini.py`)
+`/verify` (click `#view-bill` → bill page) → `{"success": true, "reason": "..."}`
 
-- `action` forced into the allowed set, else `none`
-- `confidence` clamped to `0..1`
-- element actions (`click`/`type`/`select`) with **no target** → `none`
-- target **not present** in the page summary → `none` (refuses invented elements)
+## Deploy
 
-The extension additionally gates on `confidence >= 0.80` before auto-running.
-
-## Deploy (later)
+`requirements.txt` now pins `google-adk==2.8.0`. After the local flow works:
 
 ```powershell
 .\deploy.ps1   # gcloud run deploy --source . --region asia-south1 --min-instances 0
 ```
 
+The Cloud Run runtime service account needs `roles/aiplatform.user` (granted in Phase 2).
+
 ## Note
 
-The `vertexai.generative_models` SDK is deprecated (support ends 2026-06-24). It
-is used deliberately here because it is the config already proven in
-`test_gemini.py`. Migrating to `google-genai` is a later cleanup.
+`vertexai.generative_models` (used by `gemini.py`'s fallback) is deprecated
+(support ends 2026-06-24). The ADK path uses `google-genai` under the hood.

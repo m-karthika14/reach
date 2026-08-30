@@ -1,7 +1,9 @@
-# REACH Extension — Phase 2
+# REACH Extension — Phase 3
 
 Browser observation + action layer (Phase 1) **plus** a goal box that calls the
-backend (`/agent` → Gemini 3.5 Flash) and runs the returned action.
+backend. As of Phase 3 the backend is a Google ADK agent team
+(`/agent` = perception → action), and after the extension runs the action it
+re-inspects the page and calls `/verify` (Verification Agent).
 
 ## Load
 
@@ -29,7 +31,8 @@ backend (`/agent` → Gemini 3.5 Flash) and runs the returned action.
 3. Type a goal (e.g. *Open my electricity bill*) → **Ask REACH**.
 4. The popup shows `action / target / confidence / reasoning`. If
    `confidence >= 0.80` and **auto-run** is checked, it executes via the Phase 1
-   engine and the demo page's status line updates.
+   engine, the demo page's status line updates, then the popup re-inspects and
+   calls `/verify` — showing `Verified: … achieved the goal` or `Could not verify`.
 
 Backend URL and last goal are remembered in `chrome.storage.local`.
 `storage` permission added to the manifest for this.

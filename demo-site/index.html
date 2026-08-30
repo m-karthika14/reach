@@ -14,6 +14,11 @@
     button.secondary { background: #64748b; }
     .status { margin-top: 12px; padding: 10px; border-radius: 6px; background: #ecfdf5; color: #065f46; min-height: 20px; }
     .spacer { height: 900px; background: repeating-linear-gradient(180deg, #eef2ff, #eef2ff 40px, #e0e7ff 40px, #e0e7ff 80px); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #475569; }
+    #bill-view[hidden] { display: none; }
+    #bill-view { border-color: #bfdbfe; background: #f8fbff; }
+    #bill-view table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    #bill-view td { padding: 6px 4px; border-bottom: 1px solid #e3e6ee; }
+    #bill-view td:last-child { text-align: right; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -41,6 +46,18 @@
     <p style="margin-top:16px"><a href="page-b.html" id="to-page-b">Go to Page B</a></p>
   </div>
 
+  <div class="card" id="bill-view" hidden>
+    <h2>Electricity Bill</h2>
+    <p>Account 4471-2290 &nbsp;&middot;&nbsp; Billing period Aug 2026</p>
+    <table>
+      <tr><td>Units consumed</td><td>312 kWh</td></tr>
+      <tr><td>Amount due</td><td>&#8377;1,240.00</td></tr>
+      <tr><td>Due date</td><td>15 Sep 2026</td></tr>
+      <tr><td>Status</td><td>Unpaid</td></tr>
+    </table>
+    <button id="download-bill">Download PDF</button>
+  </div>
+
   <div class="card">
     <h2>Scroll target</h2>
     <div class="spacer">Scroll down to reach me</div>
@@ -52,7 +69,13 @@
     function report(msg) { status.textContent = msg; }
 
     document.getElementById("pay-button").addEventListener("click", () => report("Pay Bill clicked at " + new Date().toLocaleTimeString()));
-    document.getElementById("view-bill").addEventListener("click", () => report("View Bill clicked"));
+    document.getElementById("view-bill").addEventListener("click", () => {
+      const bill = document.getElementById("bill-view");
+      bill.hidden = false;
+      bill.scrollIntoView({ behavior: "smooth", block: "start" });
+      report("Electricity bill opened");
+    });
+    document.getElementById("download-bill").addEventListener("click", () => report("Bill PDF downloaded"));
     document.getElementById("bottom-button").addEventListener("click", () => report("Bottom Button clicked"));
     document.getElementById("submit-btn").addEventListener("click", () => {
       const email = document.getElementById("email").value;

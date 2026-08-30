@@ -4,6 +4,3 @@ __pycache__/
 .env
 test_*.py
 *.md
-agents/
-tools/
-memory/

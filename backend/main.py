@@ -1,19 +1,25 @@
-"""REACH backend (Phase 2): FastAPI + Gemini 3.5 Flash.
+"""REACH backend (Phase 3): FastAPI -> Google ADK agent team -> Gemini 3.5 Flash.
 
-    POST /agent   goal + page context  ->  one structured browser action
-    GET  /health  liveness probe for Cloud Run
+    POST /agent    goal + page context  ->  Root Agent [perception -> action]  ->  one action
+    POST /verify    before + action + after  ->  Verification Agent  ->  {success, reason}
+    GET  /health    liveness probe for Cloud Run
+
+main.py is only the HTTP boundary. All reasoning/orchestration lives in agents/.
 """
+
+import logging
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from gemini import ask_gemini
-from models import AgentRequest, AgentResponse
+from agents import run_agent, run_verification
+from models import AgentRequest, AgentResponse, VerifyRequest, VerifyResponse
 
-app = FastAPI(title="REACH", version="0.2.0")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-# The extension calls this from a chrome-extension:// origin (and file:// pages).
-# Wide-open CORS is fine for local dev; tighten for production later.
+app = FastAPI(title="REACH", version="0.3.0")
+
+# Extension calls this from a chrome-extension:// origin (and file:// pages).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,13 +35,18 @@ def health():
 
 @app.get("/")
 def root():
-    return {"service": "REACH", "version": app.version, "endpoints": ["/health", "/agent"]}
+    return {
+        "service": "REACH",
+        "version": app.version,
+        "framework": "google-adk",
+        "endpoints": ["/health", "/agent", "/verify"],
+    }
 
 
 @app.post("/agent", response_model=AgentResponse)
-def agent(request: AgentRequest) -> AgentResponse:
+async def agent(request: AgentRequest) -> AgentResponse:
     try:
-        return ask_gemini(
+        return await run_agent(
             goal=request.goal,
             url=request.url,
             dom=request.dom,
@@ -44,4 +55,24 @@ def agent(request: AgentRequest) -> AgentResponse:
     except RuntimeError as exc:  # e.g. GOOGLE_CLOUD_PROJECT not set
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc:  # noqa: BLE001 - surface the real error during dev
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
+
+
+@app.post("/verify", response_model=VerifyResponse)
+async def verify(request: VerifyRequest) -> VerifyResponse:
+    try:
+        result = await run_verification(
+            goal=request.goal,
+            before_dom=request.before_dom,
+            action=request.action,
+            after_dom=request.after_dom,
+            after_url=request.after_url,
+        )
+        return VerifyResponse(
+            success=bool(result.get("success", False)),
+            reason=str(result.get("reason", "")),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
