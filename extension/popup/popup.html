@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>REACH</title>
+  <link rel="stylesheet" href="../styles/popup.css" />
+</head>
+
+<body>
+  <header>
+    <h1>REACH</h1>
+    <span class="tag">Phase 2</span>
+  </header>
+
+  <section class="panel">
+    <h2>Ask REACH</h2>
+    <div class="row">
+      <input type="text" id="goal" placeholder="What do you want to do? e.g. Open my electricity bill" />
+    </div>
+    <div class="row">
+      <input type="text" id="backend" placeholder="http://127.0.0.1:8080" />
+      <label class="check">
+        <input type="checkbox" id="askScreenshot" />
+        screenshot
+      </label>
+    </div>
+    <div class="row">
+      <button id="ask" class="primary">Ask REACH</button>
+      <label class="check">
+        <input type="checkbox" id="autoRun" checked />
+        auto-run if confident
+      </label>
+    </div>
+    <div id="agentResult" class="agent-result" hidden></div>
+  </section>
+
+  <section class="panel">
+    <div class="row">
+      <button id="inspect" class="primary">Inspect Page</button>
+      <label class="check">
+        <input type="checkbox" id="withScreenshot" checked />
+        screenshot
+      </label>
+    </div>
+    <div id="thumbWrap" hidden>
+      <img id="thumb" alt="page screenshot" />
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Execute action</h2>
+    <div class="row">
+      <select id="actionType">
+        <option value="CLICK">CLICK</option>
+        <option value="TYPE">TYPE</option>
+        <option value="SELECT">SELECT</option>
+        <option value="SCROLL">SCROLL</option>
+        <option value="BACK">BACK</option>
+      </select>
+    </div>
+    <div class="row" id="selectorRow">
+      <input type="text" id="selector" placeholder="CSS selector, e.g. #pay-button" />
+    </div>
+    <div class="row" id="valueRow" hidden>
+      <input type="text" id="value" placeholder="value to type / option to select" />
+    </div>
+    <div class="row" id="amountRow" hidden>
+      <input type="number" id="amount" value="600" step="100" />
+      <span class="hint">px</span>
+    </div>
+    <div class="row">
+      <button id="run" class="primary">Run action</button>
+    </div>
+  </section>
+
+  <pre id="output">Click "Inspect Page" to see URL, text, buttons, links, inputs, ARIA and a screenshot.</pre>
+
+  <script src="popup.js"></script>
+</body>
+</html>

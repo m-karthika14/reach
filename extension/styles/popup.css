@@ -1,0 +1,153 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 420px;
+  min-height: 320px;
+  margin: 0;
+  padding: 14px;
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 13px;
+  color: #1c1c1c;
+  background: #fafafa;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.5px;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #666;
+}
+
+.tag {
+  font-size: 11px;
+  background: #e2e8f0;
+  color: #334155;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.row:last-child {
+  margin-bottom: 0;
+}
+
+button {
+  padding: 7px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f1f5f9;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+button.primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+button.primary:hover {
+  background: #1d4ed8;
+}
+
+input[type="text"],
+input[type="number"],
+select {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #555;
+  white-space: nowrap;
+}
+
+.hint {
+  color: #888;
+  font-size: 12px;
+}
+
+#thumbWrap {
+  margin-top: 4px;
+}
+
+#thumb {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+
+.agent-result {
+  margin-top: 4px;
+  padding: 10px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-result .verdict {
+  font-weight: 600;
+}
+
+.agent-result.ok .verdict { color: #047857; }
+.agent-result.hold .verdict { color: #b45309; }
+.agent-result.err .verdict { color: #b91c1c; }
+
+.agent-result code {
+  background: #eef2ff;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 360px;
+  overflow: auto;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+}
