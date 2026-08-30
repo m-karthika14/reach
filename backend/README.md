@@ -1,10 +1,27 @@
-# REACH Backend — Phase 10
+# REACH Backend — Phase 11
 
-FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`),
-Firestore sessions, Structure + Vision + Reconciliation, evidence-based
-verification, **persistent memory + RAG**, and **correction learning** — when the
-user says REACH was wrong about an element, that becomes persistent knowledge
-that re-ranks candidates in future sessions. See `memory/README.md`.
+FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`).
+Three memory scopes now: **session** (what we're doing), **website** (page +
+correction memory), **user** (preference profile). See `memory/README.md`.
+
+Phase 11 adds a per-user **preference profile** (`preference_memory`, one doc per
+`user_id`): `language`, `verbosity`, `confirmation_style`, `preferred_navigation`,
+`confirmation_before_payment`, `frequently_used_sites`. It is retrieved every
+turn and **changes behaviour**:
+
+| Preference | Effect |
+| --- | --- |
+| `verbosity` (concise/normal/detailed) | `styler_agent` rewrites the reply (1 extra call only when ≠ normal/en) |
+| `language` (en/kn/hi/…) | reply is written in that language; the action JSON is untouched |
+| `confirmation_style` (always/risky_only/minimal) | when REACH pauses for confirmation — but a **high-risk action always confirms**; a preference can never bypass the Phase 8 safety gate |
+| `preferred_navigation` (direct/menu_first/search_first) | rendered into the agent prompt as a routing hint |
+| `frequently_used_sites` | bumped on each VERIFIED task |
+
+Detection: the Dialogue Agent emits `intent="preference_update"` with
+`preference {field, value}`; a regex fast-path also catches "keep it short",
+"reply in Kannada", "always ask before paying", "prefer menus". Values are
+normalised/validated (`memory/preferences.py`) — junk is rejected.
+`GET /preferences?user_id=` · `PATCH /preferences`.
 
 `main.py` is only the HTTP boundary. Reasoning lives in `agents/`, the
 browser-loop controller in `loop/`, session state in `sessions/`.

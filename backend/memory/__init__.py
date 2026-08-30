@@ -6,6 +6,7 @@ Memory is a HINT, never authority: the current page always wins, and page
 knowledge is only strengthened after a Phase 8 VERIFIED result.
 """
 
+from .preferences import PreferenceProfile, preference_store
 from .retrieval import MemoryRetriever, match_corrections_to_candidates, render_memory
 from .util import domain_of, page_of
 from .writer import MemoryWriter
@@ -30,5 +31,6 @@ def writer() -> MemoryWriter:
 
 __all__ = [
     "MemoryRetriever", "MemoryWriter", "render_memory", "match_corrections_to_candidates",
+    "PreferenceProfile", "preference_store",
     "retriever", "writer", "domain_of", "page_of",
 ]

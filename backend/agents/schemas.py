@@ -83,10 +83,23 @@ class CorrectionDetail(BaseModel):
     strength: Literal["weak", "normal", "strong"] = "normal"
 
 
-class DialogueInterpretation(BaseModel):
-    """How the new user message relates to the ongoing session (Phase 5/10)."""
+class PreferenceUpdate(BaseModel):
+    """A durable "how I want you to behave" statement (Phase 11)."""
 
-    intent: Literal["command", "new_goal", "reference", "correction", "smalltalk", "status_query"]
+    field: Literal[
+        "verbosity", "language", "confirmation_style",
+        "preferred_navigation", "confirmation_before_payment",
+    ]
+    value: str
+
+
+class DialogueInterpretation(BaseModel):
+    """How the new user message relates to the ongoing session (Phase 5/10/11)."""
+
+    intent: Literal[
+        "command", "new_goal", "reference", "correction",
+        "smalltalk", "status_query", "preference_update",
+    ]
     command: Optional[
         Literal["stop", "continue", "pause", "yes", "no", "retry"]
     ] = None
@@ -97,5 +110,7 @@ class DialogueInterpretation(BaseModel):
     # Set ONLY when intent == "correction" and the user explicitly says REACH was
     # wrong about an element ("no, that's the payment button").
     correction: Optional[CorrectionDetail] = None
+    # Set ONLY when intent == "preference_update".
+    preference: Optional[PreferenceUpdate] = None
     # A short, natural assistant reply for this turn.
     reply: Optional[str] = None

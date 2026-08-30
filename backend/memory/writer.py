@@ -123,12 +123,24 @@ class MemoryWriter:
             log.info("[CORRECTION] %s -> %r confirmed by VERIFIED action",
                      selector, r.get("correct_label"))
 
-    # -- preferences ----------------------------------------------- #
+    # -- preferences (Phase 11: routed into the per-user profile) ---- #
 
-    def set_preference(self, preference: str, value: Any) -> None:
-        p = PreferenceMemory(preference=preference, value=value)
-        self._store.set("preference_memory", "pref_" + preference, p.model_dump())
-        log.info("[MEMORY] set preference %s=%r", preference, value)
+    _PREF_ALIASES = {
+        "preferred_language": "language",
+        "confirmation_before_payment": "confirmation_before_payment",
+        "verbosity": "verbosity",
+        "language": "language",
+        "confirmation_style": "confirmation_style",
+        "preferred_navigation": "preferred_navigation",
+    }
+
+    def set_preference(self, preference: str, value: Any, user_id: str = "demo-user") -> dict:
+        from .preferences import preference_store
+
+        field = self._PREF_ALIASES.get(preference, preference)
+        _, applied = preference_store().patch(user_id, {field: value})
+        log.info("[MEMORY] set preference %s=%r -> %s", preference, value, applied or "(rejected)")
+        return applied
 
     # -- task history -------------------------------------------- #
 

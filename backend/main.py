@@ -22,6 +22,7 @@ from models import (
     ChatResponse,
     LoopStepRequest,
     LoopStepResponse,
+    PreferencePatch,
     VerifyRequest,
     VerifyResponse,
 )
@@ -54,7 +55,8 @@ def root():
         "version": app.version,
         "framework": "google-adk",
         "session_backend": _sessions.backend_kind,
-        "endpoints": ["/health", "/agent", "/agent/loop", "/verify", "/chat", "/sessions", "/memory"],
+        "endpoints": ["/health", "/agent", "/agent/loop", "/verify", "/chat",
+                      "/sessions", "/memory", "/preferences"],
     }
 
 
@@ -62,6 +64,20 @@ def root():
 async def memory(url: str = "", goal: str = ""):
     """Everything REACH has learned about the site at `url` (Phase 9 - for the UI panel)."""
     return _mem.retriever().retrieve(url, goal)
+
+
+@app.get("/preferences")
+async def get_preferences(user_id: str = "demo-user"):
+    """The per-user preference profile (Phase 11)."""
+    return _mem.preference_store().get(user_id).model_dump()
+
+
+@app.patch("/preferences")
+async def patch_preferences(patch: PreferencePatch):
+    updates = {k: v for k, v in patch.model_dump().items()
+               if k != "user_id" and v is not None}
+    profile, applied = _mem.preference_store().patch(patch.user_id, updates)
+    return {"profile": profile.model_dump(), "applied": applied}
 
 
 @app.post("/agent", response_model=AgentResponse)

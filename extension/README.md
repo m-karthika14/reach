@@ -1,3 +1,14 @@
+# REACH Extension — Phase 11
+
+New **Personalization** panel: a `user id` field plus dropdowns for
+**Style** (concise/normal/detailed), **Language**, **Confirm**
+(always/risky only/minimal), **Navigation**. Changing one `PATCH`es
+`/preferences`; the panel loads the stored profile on open and after any
+in-chat preference change (`⚙ preference: …`). Switch the user id to demo
+A-vs-B behaviour on the identical request. Chat requests now carry `user_id`.
+
+---
+
 # REACH Extension — Phase 10
 
 Correction learning: tell REACH *"no, that's the payment button"* and the chat

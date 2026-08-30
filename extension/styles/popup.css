@@ -153,6 +153,10 @@ button.tiny {
 .mem-panel code { background: #eef2ff; padding: 0 3px; border-radius: 3px; }
 .mem-panel .mem-verified { color: #047857; }
 
+.user-id { width: 120px; padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; }
+label.pref { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: #64748b; flex: 1; }
+label.pref select { padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; }
+
 .loop-log {
   margin-top: 6px;
   padding: 8px;

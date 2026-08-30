@@ -116,6 +116,7 @@ class LoopStepResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: Optional[str] = None
+    user_id: str = "demo-user"
     message: str
     url: str
     dom: str
@@ -141,4 +142,15 @@ class ChatResponse(BaseModel):
     memory_updated: bool = False        # this turn wrote a correction/preference
     correction: Optional[dict] = None   # {selector, correct_label, previous_label, confidence}
     ranking: Optional[dict] = None      # correction-aware ranking explanation
+    preferences: Optional[dict] = None  # the active per-user preference profile
+    preference_updated: Optional[dict] = None  # fields changed this turn
     current_step: int = 0
+
+
+class PreferencePatch(BaseModel):
+    user_id: str = "demo-user"
+    language: Optional[str] = None
+    verbosity: Optional[str] = None
+    confirmation_style: Optional[str] = None
+    preferred_navigation: Optional[str] = None
+    confirmation_before_payment: Optional[bool] = None

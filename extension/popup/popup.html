@@ -24,6 +24,45 @@
 
   <section class="panel">
     <div class="row space-between">
+      <h2>Personalization</h2>
+      <input type="text" id="userId" class="user-id" value="demo-user" title="user id" />
+    </div>
+    <div class="row">
+      <label class="pref">Style
+        <select id="prefVerbosity">
+          <option value="concise">concise</option>
+          <option value="normal" selected>normal</option>
+          <option value="detailed">detailed</option>
+        </select>
+      </label>
+      <label class="pref">Language
+        <select id="prefLanguage">
+          <option value="en" selected>English</option>
+          <option value="kn">Kannada</option>
+          <option value="hi">Hindi</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <label class="pref">Confirm
+        <select id="prefConfirm">
+          <option value="always">always</option>
+          <option value="risky_only" selected>risky only</option>
+          <option value="minimal">minimal</option>
+        </select>
+      </label>
+      <label class="pref">Navigation
+        <select id="prefNav">
+          <option value="direct" selected>direct</option>
+          <option value="menu_first">menu first</option>
+          <option value="search_first">search first</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="row space-between">
       <h2>Conversation</h2>
       <button id="newChat" class="tiny">New chat</button>
     </div>

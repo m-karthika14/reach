@@ -153,6 +153,55 @@ function chatMsg(kind, who, text) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
+// ---- Personalization (Phase 11) -----------------------------------------
+
+const userIdInput = $("userId");
+const PREF_FIELDS = {
+  prefVerbosity: "verbosity",
+  prefLanguage: "language",
+  prefConfirm: "confirmation_style",
+  prefNav: "preferred_navigation"
+};
+
+function currentUserId() {
+  return (userIdInput.value.trim() || "demo-user");
+}
+
+async function loadPreferences() {
+  const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
+  try {
+    const r = await fetch(`${backend}/preferences?user_id=${encodeURIComponent(currentUserId())}`);
+    if (!r.ok) return;
+    const p = await r.json();
+    for (const [id, field] of Object.entries(PREF_FIELDS)) {
+      if (p[field] != null) $(id).value = p[field];
+    }
+  } catch (e) { /* offline */ }
+}
+
+async function patchPreference(field, value) {
+  const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
+  try {
+    await fetch(`${backend}/preferences`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: currentUserId(), [field]: value })
+    });
+  } catch (e) { /* offline */ }
+}
+
+for (const [id, field] of Object.entries(PREF_FIELDS)) {
+  $(id).addEventListener("change", () => patchPreference(field, $(id).value));
+}
+userIdInput.addEventListener("change", () => {
+  chrome.storage.local.set({ reach_user_id: currentUserId() });
+  loadPreferences();
+});
+chrome.storage.local.get(["reach_user_id"], (s) => {
+  if (s.reach_user_id) userIdInput.value = s.reach_user_id;
+  loadPreferences();
+});
+
 const memoryPanel = $("memoryPanel");
 
 function renderMemory(mem) {
@@ -181,9 +230,12 @@ function renderMemory(mem) {
       }
     }
   }
-  if (mem.preferences?.length) {
-    html += `<div class="mem-group">preferences</div>`;
-    for (const p of mem.preferences) html += `<div>${esc(p.preference)} = <code>${esc(p.value)}</code></div>`;
+  const pr = mem.preferences;
+  if (pr && typeof pr === "object" && !Array.isArray(pr)) {
+    html += `<div class="mem-group">preferences (${esc(pr.user_id || "demo-user")})</div>`;
+    for (const k of ["verbosity", "language", "confirmation_style", "preferred_navigation"]) {
+      if (pr[k] != null) html += `<div>${k} = <code>${esc(pr[k])}</code></div>`;
+    }
   }
   memoryPanel.innerHTML = html;
 }
@@ -233,6 +285,7 @@ async function sendChat() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         session_id: chatSessionId,
+        user_id: currentUserId(),
         message,
         url: page.url,
         dom: JSON.stringify(page),
@@ -257,6 +310,10 @@ async function sendChat() {
 
   chatMsg("reach", "REACH", r.message);
   if (r.memory) renderMemory(r.memory);
+  if (r.preference_updated) {
+    chatMsg("meta", "", "⚙ preference: " + Object.entries(r.preference_updated).map(([k, v]) => `${k}=${v}`).join(", "));
+    loadPreferences();
+  }
   if (r.memory_updated && r.correction) {
     chatMsg("meta", "", `✎ learned: ${r.correction.selector} → "${r.correction.correct_label}" (persisted to Firestore)`);
   }

@@ -13,9 +13,9 @@ import logging
 import re
 
 import memory as _mem
-from agents import resolve_message, run_agent, run_verification
+from agents import resolve_message, run_agent, run_verification, style_reply
 from models import AgentResponse, ChatRequest, ChatResponse
-from policy import classify_risk
+from policy import classify_risk, risk_level
 
 from .manager import SessionManager, new_session_id
 
@@ -52,7 +52,13 @@ _PREF_CONFIRM_ON = re.compile(
     r"\b(always ask|ask me|confirm|check with me)\b.{0,30}\b(pay|paying|payment|purchase|buy)", re.I)
 _PREF_CONFIRM_OFF = re.compile(
     r"\b(don'?t|do not|never|stop) (ask|confirm|check).{0,30}\b(pay|payment|purchase)", re.I)
-_PREF_LANG = re.compile(r"\b(?:prefer|use|set|switch to)\b.{0,20}\b(english|kannada|hindi|tamil|telugu)\b", re.I)
+_PREF_LANG = re.compile(
+    r"\b(?:in|reply in|respond in|speak|prefer|use|set|switch to)\b.{0,20}"
+    r"\b(english|kannada|hindi|tamil|telugu)\b", re.I)
+_PREF_SHORT = re.compile(r"(keep .{0,20}short|be brief|be concise|shorter answers?|less wordy|just the answer|tl;?dr)", re.I)
+_PREF_LONG = re.compile(r"(be (?:more )?(?:detailed|verbose|thorough)|explain more|more detail)", re.I)
+_PREF_NAV_MENU = re.compile(r"(prefer|use|via).{0,15}menus?", re.I)
+_PREF_NAV_SEARCH = re.compile(r"(prefer|use|via).{0,15}search", re.I)
 
 
 def _referenced_selector(state) -> str:
@@ -82,14 +88,22 @@ def _candidate_meta(state, selector: str) -> dict:
 
 
 def _maybe_preference(message: str) -> tuple[str, object] | None:
-    """Detect a durable preference statement (Step 9.8), else None."""
+    """Detect a durable preference statement, else None (Steps 9.8, 11.9-11.10)."""
     if _PREF_CONFIRM_OFF.search(message):
         return ("confirmation_before_payment", False)
     if _PREF_CONFIRM_ON.search(message):
         return ("confirmation_before_payment", True)
+    if _PREF_SHORT.search(message):
+        return ("verbosity", "concise")
+    if _PREF_LONG.search(message):
+        return ("verbosity", "detailed")
+    if _PREF_NAV_MENU.search(message):
+        return ("preferred_navigation", "menu_first")
+    if _PREF_NAV_SEARCH.search(message):
+        return ("preferred_navigation", "search_first")
     m = _PREF_LANG.search(message)
     if m:
-        return ("preferred_language", m.group(1).lower())
+        return ("language", m.group(1).lower())
     return None
 
 
@@ -103,12 +117,17 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
         # 1. fresh browser observation wins over stored page state
         manager.reconcile_page(state, req.url, req.dom)
 
-        # 1b. RAG: retrieve what REACH knows about this site (Phase 9)
+        # 1b. RAG: retrieve site knowledge (Phase 9/10) + user profile (Phase 11)
         try:
-            turn_memory = _mem.retriever().retrieve(req.url, state.user_goal or req.message)
+            turn_memory = _mem.retriever().retrieve(
+                req.url, state.user_goal or req.message, user_id=req.user_id)
         except Exception:  # noqa: BLE001
             log.exception("[chat] memory retrieval failed")
             turn_memory = {}
+        profile = _mem.preference_store().get(req.user_id)
+        log.info("[PREFERENCES] user=%s verbosity=%s language=%s confirmation_style=%s navigation=%s",
+                 req.user_id, profile.verbosity, profile.language,
+                 profile.confirmation_style, profile.preferred_navigation)
         memory_used = False
 
         # 2. fold in what the extension executed since last turn, and verify it
@@ -135,6 +154,8 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                         if v.get("status") == "VERIFIED" and req.last_executed.get("target"):
                             _mem.writer().mark_correction_verified(
                                 req.url, req.last_executed["target"])
+                            _mem.preference_store().note_site_visit(
+                                req.user_id, _mem.domain_of(req.url))
                     except Exception:  # noqa: BLE001
                         log.exception("[chat] memory write failed")
                 except Exception:  # noqa: BLE001
@@ -143,19 +164,22 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
         manager.append_turn(state, "user", req.message)
         log.info("[CHAT] %s  status=%s  msg=%r", session_id, state.status, req.message)
 
-        # 2b. durable preference statement (Phase 9, Step 9.8) -> store & ack
+        # 2b. durable preference statement (Phase 11) -> store & ack, in the
+        #     user's (possibly new) style. Fast regex path; dialogue-detected
+        #     preferences are handled after interpretation below.
         pref = _maybe_preference(req.message)
         if pref:
-            try:
-                _mem.writer().set_preference(pref[0], pref[1])
-            except Exception:  # noqa: BLE001
-                log.exception("[chat] preference write failed")
-            reply = f"Got it - I'll remember that ({pref[0]} = {pref[1]})."
+            _, applied = _mem.preference_store().patch(req.user_id, {pref[0]: pref[1]})
+            profile = _mem.preference_store().get(req.user_id)
+            base = (f"Got it - {', '.join(f'{k} = {v}' for k, v in applied.items())}."
+                    if applied else "I couldn't apply that preference.")
+            reply = await style_reply(base, profile.verbosity, profile.language)
             manager.append_turn(state, "assistant", reply)
             await manager.save(state)
             return ChatResponse(
                 session_id=session_id, message=reply, status=state.status,
                 candidates=state.current_candidates, memory=turn_memory,
+                preferences=profile.model_dump(), preference_updated=applied or None,
                 current_step=state.current_step,
             )
 
@@ -180,8 +204,26 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
         memory_updated = False
         correction_out: dict | None = None
         ranking_out: dict | None = None
+        preference_updated: dict | None = None
 
         lv = state.last_verification or {}
+
+        # Phase 11: preference update detected by the Dialogue Agent.
+        if interp.intent == "preference_update" and interp.preference:
+            _, preference_updated = _mem.preference_store().patch(
+                req.user_id, {interp.preference.field: interp.preference.value})
+            profile = _mem.preference_store().get(req.user_id)
+            base = (f"Got it - {', '.join(f'{k} = {v}' for k, v in preference_updated.items())}."
+                    if preference_updated else "I couldn't apply that preference.")
+            reply = await style_reply(base, profile.verbosity, profile.language)
+            manager.append_turn(state, "assistant", reply)
+            await manager.save(state)
+            return ChatResponse(
+                session_id=session_id, message=reply, status=state.status,
+                candidates=state.current_candidates, memory=turn_memory,
+                preferences=profile.model_dump(), preference_updated=preference_updated or None,
+                current_step=state.current_step,
+            )
 
         # Phase 10: an explicit "you were wrong about X" correction -> persist it.
         if interp.intent == "correction" and interp.correction:
@@ -318,7 +360,19 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                         f"({resp.confidence:.0%})."
                     )
                 else:
+                    # Phase 11: confirmation_style personalises WHEN we ask - but
+                    # a high-risk action (pay/buy/delete...) ALWAYS confirms; a
+                    # preference can never bypass the safety gate (Step 11.18).
                     risk = classify_risk(state.user_goal, resp.action, resp.target, resp.value)
+                    level = risk_level(resp.action, resp.target, resp.value)
+                    must_confirm = level == "high" or profile.confirmation_before_payment and level == "high"
+                    if profile.confirmation_style == "always" and resp.action not in ("scroll", "back"):
+                        risk = risk or "you asked me to confirm every action"
+                    elif profile.confirmation_style == "minimal":
+                        risk = risk if level == "high" else None
+                    if must_confirm:
+                        risk = risk or f"{level}-risk action"
+
                     if risk:
                         state.pending_confirmation = resp.model_dump()
                         state.status = "waiting_confirmation"
@@ -333,6 +387,10 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
                     else:
                         action = resp
                         reply = interp.reply or f"Okay, {_phrase(resp)}."
+
+        # Phase 11: apply verbosity + language to the user-facing text only.
+        if reply:
+            reply = await style_reply(reply, profile.verbosity, profile.language)
 
         manager.append_turn(state, "assistant", reply)
         await manager.save(state)
@@ -352,5 +410,7 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
             memory_updated=memory_updated,
             correction=correction_out,
             ranking=ranking_out,
+            preferences=profile.model_dump(),
+            preference_updated=preference_updated,
             current_step=state.current_step,
         )

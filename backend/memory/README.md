@@ -6,7 +6,7 @@ Firestore db **`reach-memory`**, four collections:
 | --- | --- |
 | `page_memory` | learned elements: `{domain, page, element, selector, description, verified, confidence, hits, misses}` — id is stable per `(domain, page, selector)` so repeats update in place |
 | `correction_memory` | `{user_id, domain, page, selector, role, accessible_name, element_text, agent_prediction, correct_label, user_said, strength, confidence, verified}` — **append-only** (history kept, Step 10.8) |
-| `preference_memory` | `{preference, value}` — id `pref_<name>` |
+| `preference_memory` | **one doc per user**, id `pref_<user_id>`: `{user_id, language, verbosity, confirmation_style, preferred_navigation, confirmation_before_payment, frequently_used_sites}` (Phase 11, `preferences.py`) |
 | `task_history` | `{session_id, goal, domain, page, actions[], result}` |
 
 ## Files

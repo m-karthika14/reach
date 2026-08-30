@@ -59,6 +59,15 @@ Classify the new message:
 - "status_query": the user is asking whether the last action worked
   ("did it work?", "did it go through?", "what happened?"). Set a reply that
   answers from LAST VERIFICATION.
+- "preference_update": a durable "how I want you to behave" instruction
+  ("keep answers short", "be more detailed", "reply in Kannada", "always ask
+  before paying", "prefer menus"). Fill "preference":
+    field ∈ verbosity | language | confirmation_style | preferred_navigation | confirmation_before_payment
+    value: verbosity -> concise|normal|detailed ; language -> en|kn|hi|ta|te ;
+           confirmation_style -> always|risky_only|minimal ;
+           preferred_navigation -> direct|menu_first|search_first ;
+           confirmation_before_payment -> true|false
+  This is NOT a correction and NOT a goal.
 - "correction": EITHER the user is changing the plan ("actually..., do X instead"),
   OR the user says REACH was WRONG about what an element is
   ("no, that's the payment button", "that icon is profile, not settings").
@@ -92,7 +101,8 @@ Rules for resolution:
   re-check it - naming it does not bypass the safety gate.
 - Always set a short, natural "reply" (one sentence).
 
-Return JSON: intent, command, resolved_goal, resolved_request, correction, reply.
+Return JSON: intent, command, resolved_goal, resolved_request, correction,
+preference, reply.
 """
 
 

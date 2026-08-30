@@ -7,5 +7,6 @@ Public surface used by main.py:
 
 from .dialogue_agent import resolve_message
 from .root_agent import run_agent, run_llm, run_verification
+from .styler_agent import style_reply
 
-__all__ = ["run_agent", "run_verification", "run_llm", "resolve_message"]
+__all__ = ["run_agent", "run_verification", "run_llm", "resolve_message", "style_reply"]

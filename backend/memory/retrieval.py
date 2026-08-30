@@ -44,7 +44,8 @@ class MemoryRetriever:
         raw_corr.sort(key=lambda r: float(r.get("created_at", 0)), reverse=True)
         corrections = _aggregate_corrections(raw_corr, page)
 
-        preferences = self._store.query("preference_memory")
+        from .preferences import preference_store
+        prof = preference_store().get(user_id).model_dump()
 
         tasks = self._store.query("task_history", {"domain": domain})
         tasks.sort(key=lambda r: float(r.get("created_at", 0)), reverse=True)
@@ -60,9 +61,7 @@ class MemoryRetriever:
                 for r in page_rows
             ],
             "corrections": corrections,
-            "preferences": [
-                {"preference": r.get("preference"), "value": r.get("value")} for r in preferences
-            ],
+            "preferences": prof,   # Phase 11: the structured per-user profile
             "recent_tasks": [
                 {"goal": r.get("goal"), "result": r.get("result")} for r in tasks
             ],
@@ -152,10 +151,19 @@ def render_memory(mem: dict[str, Any]) -> str:
                     f" (was thought to be '{c['previous_label'] or '?'}';"
                     f" {'verified, ' if c.get('verified') else ''}conf {c['confidence']}, seen {c['count']}x)"
                 )
-    if mem.get("preferences"):
-        lines.append("User preferences:")
-        for p in mem["preferences"]:
-            lines.append(f"  - {p['preference']} = {p['value']}")
+    prof = mem.get("preferences") or {}
+    if isinstance(prof, dict):
+        lines.append(
+            "User preferences: "
+            f"verbosity={prof.get('verbosity', 'normal')}, "
+            f"language={prof.get('language', 'en')}, "
+            f"confirmation_style={prof.get('confirmation_style', 'risky_only')}, "
+            f"preferred_navigation={prof.get('preferred_navigation', 'direct')}"
+        )
+        if prof.get("preferred_navigation") == "menu_first":
+            lines.append("  (this user prefers navigating via menus over one-shot shortcuts)")
+        elif prof.get("preferred_navigation") == "search_first":
+            lines.append("  (this user prefers using search over menus)")
     if mem.get("recent_tasks"):
         lines.append("Recent tasks here: " + "; ".join(
             f"{t['goal']} -> {t['result']}" for t in mem["recent_tasks"]))
