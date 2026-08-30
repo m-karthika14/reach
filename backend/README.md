@@ -32,6 +32,17 @@ separates the spoken text (`message`, Phase 11-styled) from the machine action
 (`action`), so TTS never reads JSON. Voice confirmations reuse the Phase 8
 `requires_confirmation` / `pending_confirmation` flow.
 
+## Phase 13 - demo portal payments (Razorpay Test Mode)
+
+`payments.py` + `POST /payments/create-order` · `POST /payments/verify` ·
+`POST /payments/webhook` · `GET /payments/transaction/{id}`. Secrets are env-only
+(`RAZORPAY_KEY_ID` / `_KEY_SECRET` / `_WEBHOOK_SECRET`); **unset → MOCK mode** so
+the demo runs offline. `/` shows `payments_mode`. Results are written to the
+`payment_transactions` Firestore collection and rendered on the demo's
+`success.html` as a receipt + transaction id — which the **existing Phase 8
+Verification Agent** reads as evidence. No agent code changes.
+`requirements.txt` adds `razorpay==1.4.2` (import is guarded).
+
 `main.py` is only the HTTP boundary. Reasoning lives in `agents/`, the
 browser-loop controller in `loop/`, session state in `sessions/`.
 

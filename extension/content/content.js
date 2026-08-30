@@ -142,6 +142,10 @@
     }
 
     if (message.type === "GET_PAGE_CONTEXT") {
+      // Let a page (e.g. the demo portal) light up its own "REACH activity" panel.
+      try {
+        window.dispatchEvent(new CustomEvent("reach:activity", { detail: { step: "observe" } }));
+      } catch (e) { /* noop */ }
       sendResponse(getPageContext());
       return;
     }
@@ -158,6 +162,11 @@
           result = { success: false, action: message.action, error: String(error) };
         }
       }
+      try {
+        window.dispatchEvent(new CustomEvent("reach:activity", {
+          detail: { step: "act", action: message.action, target: message.selector || null, ok: !!result?.success }
+        }));
+      } catch (e) { /* noop */ }
       sendResponse(result);
       return;
     }

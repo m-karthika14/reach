@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>REACH Energy — Electricity Bill</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="chrome"></div>
+
+  <div class="wrap">
+    <div class="hello">Billing</div>
+    <h1 class="page-title">Electricity Bill</h1>
+
+    <div class="grid">
+      <div>
+        <div class="card bill-hero">
+          <h3>Amount due</h3>
+          <div class="bill-amount" id="amt">₹1,240</div>
+          <div class="bill-meta"><span class="pill due">Due 30 Aug 2026</span></div>
+        </div>
+
+        <div class="card">
+          <h2>Bill details</h2>
+          <div class="rows">
+            <div class="r"><span class="k">Consumer number</span><span class="v">REACH-2026-001</span></div>
+            <div class="r"><span class="k">Billing period</span><span class="v">Aug 2026</span></div>
+            <div class="r"><span class="k">Current usage</span><span class="v">312 kWh</span></div>
+            <div class="r"><span class="k">Previous bill</span><span class="v">₹1,180</span></div>
+            <div class="r"><span class="k">Status</span><span class="v">Unpaid</span></div>
+          </div>
+          <div class="btnrow">
+            <button class="btn" id="pay">Pay bill</button>
+            <button class="btn secondary" id="history">View payment history</button>
+            <!-- deliberately unlabelled -->
+            <button class="btn ghost" id="download" aria-label="button">⬇︎</button>
+          </div>
+        </div>
+
+        <div class="card" id="historyCard" hidden>
+          <h2>Payment history</h2>
+          <div class="rows">
+            <div class="r"><span class="k">Jul 2026</span><span class="v">₹1,180 · Paid · TX-77120</span></div>
+            <div class="r"><span class="k">Jun 2026</span><span class="v">₹1,090 · Paid · TX-70988</span></div>
+            <div class="r"><span class="k">May 2026</span><span class="v">₹1,305 · Paid · TX-64451</span></div>
+          </div>
+          <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Autopay: Off · Preferred method: UPI</p>
+        </div>
+
+        <div id="status" class="status">Waiting for action…</div>
+      </div>
+
+      <div>
+        <div class="card side">
+          <h2>REACH activity <span class="tag-demo">demo mode</span></h2>
+          <div class="steps" id="steps"></div>
+        </div>
+        <div id="demoCtl"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>REACH Energy · controlled demo portal</footer>
+
+  <script src="app.js"></script>
+  <script>
+    document.getElementById("chrome").innerHTML = topbar("bill.html");
+    document.getElementById("demoCtl").innerHTML = demoControls();
+    wireDemoControls();
+    Activity.mount(document.getElementById("steps"));
+    document.getElementById("amt").textContent = money(BILL.amount);
+
+    document.getElementById("pay").onclick = () => (location.href = "payment.html");
+    document.getElementById("download").onclick = () => setStatus("ok", "Bill PDF downloaded.");
+    document.getElementById("history").onclick = () => {
+      document.getElementById("historyCard").hidden = false;
+      document.getElementById("historyCard").scrollIntoView({ behavior: "smooth", block: "start" });
+      setStatus("", "Payment history opened.");
+    };
+  </script>
+</body>
+</html>

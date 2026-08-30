@@ -1,9 +1,19 @@
 # REACH Extension — Phase 12  (voice + accessibility)
 
 Voice is **another input into the same `/chat` pipeline** — there is no second
-agent. `background/service-worker.js` handles the `activate-voice` command
-(**Alt+R**): it stores a fresh flag and opens the popup, which auto-starts
-listening.
+agent.
+
+**Hands-free wake word** (default on, `say "REACH" to activate` checkbox): while
+the popup is open a continuous recognizer listens for **"reach"** (lenient —
+also "hey reach" / "ok reach"). On hearing it REACH chimes *"Yes?"* and captures
+the next sentence; say **"reach, open my bill"** in one breath and it skips the
+chime. After every response it returns to wake-listening — a full eyes-free
+loop. `Alt+R` (the `activate-voice` command → `background/service-worker.js` →
+open popup) and the mic button are secondary paths that skip the wake word.
+
+> The wake word only runs while the popup is open (a popup closes on blur). Fully
+> background wake-word detection needs an **offscreen document** holding the mic
+> + recognizer and relaying the transcript to the service worker — the next step.
 
 **Voice panel** (top of the popup):
 - Mic button with a 5-state machine — `idle / listening / processing / speaking / error`

@@ -300,7 +300,7 @@ async def run_chat_turn(manager: SessionManager, req: ChatRequest) -> ChatRespon
             action = AgentResponse.model_validate(state.pending_confirmation)
             state.pending_confirmation = None
             state.status = "running"
-            reply = f"Okay, {_phrase(action)}."
+            reply = "Okay — going ahead now."
         else:
             # 5. correction / new goal / reference / continue
             #    (an explicit element correction was already persisted above)

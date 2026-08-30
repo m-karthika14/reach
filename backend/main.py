@@ -8,11 +8,22 @@ main.py is only the HTTP boundary. All reasoning/orchestration lives in agents/.
 """
 
 import logging
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+# Load backend/.env BEFORE importing modules that read env at import time
+# (agents.config, payments). Shell env vars take precedence.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).with_name(".env"))
+except ImportError:
+    pass
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 import memory as _mem
+import payments as _pay
 from agents import run_agent, run_verification
 from loop import run_loop_step
 from models import (
@@ -20,9 +31,11 @@ from models import (
     AgentResponse,
     ChatRequest,
     ChatResponse,
+    CreateOrderRequest,
     LoopStepRequest,
     LoopStepResponse,
     PreferencePatch,
+    VerifyPaymentRequest,
     VerifyRequest,
     VerifyResponse,
 )
@@ -30,7 +43,7 @@ from sessions import SessionManager, new_session_id, run_chat_turn
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="REACH", version="0.8.0")
+app = FastAPI(title="REACH", version="0.13.0")
 
 _sessions = SessionManager()
 
@@ -56,8 +69,56 @@ def root():
         "framework": "google-adk",
         "session_backend": _sessions.backend_kind,
         "endpoints": ["/health", "/agent", "/agent/loop", "/verify", "/chat",
-                      "/sessions", "/memory", "/preferences"],
+                      "/sessions", "/memory", "/preferences", "/payments/*"],
+        "payments_mode": "real" if _pay.REAL else "mock",
     }
+
+
+# --------------------------------------------------------------------------- #
+# Phase 13 - demo portal payments (Razorpay Test Mode). Secrets stay in env.
+# --------------------------------------------------------------------------- #
+
+
+@app.post("/payments/create-order")
+async def create_order(req: CreateOrderRequest):
+    try:
+        return _pay.create_order(req.amount, req.consumer or "", req.note or "")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Razorpay: {exc}")
+
+
+@app.post("/payments/verify")
+async def verify_payment(req: VerifyPaymentRequest):
+    return _pay.verify_payment(
+        req.razorpay_order_id, req.razorpay_payment_id, req.razorpay_signature or ""
+    )
+
+
+@app.post("/payments/test-capture")
+async def test_capture(body: dict):
+    """Demo-only: finish a TEST order without the card UI (autonomous payment)."""
+    key = _pay.PUBLIC_KEY_ID
+    if not (key.startswith("rzp_test_") or key == "rzp_test_MOCK"):
+        raise HTTPException(status_code=403, detail="test-capture requires a Razorpay test key")
+    order_id = (body or {}).get("order_id", "")
+    if not order_id:
+        raise HTTPException(status_code=400, detail="order_id required")
+    return _pay.test_capture(order_id)
+
+
+@app.post("/payments/webhook")
+async def payments_webhook(request: Request):
+    raw = await request.body()
+    sig = request.headers.get("x-razorpay-signature", "")
+    return _pay.handle_webhook(raw, sig)
+
+
+@app.get("/payments/transaction/{order_id}")
+async def payment_transaction(order_id: str):
+    tx = _pay.get_transaction(order_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="unknown order")
+    return tx
 
 
 @app.get("/memory")

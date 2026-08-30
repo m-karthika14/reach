@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>REACH Energy — Payment</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+  <div id="chrome"></div>
+
+  <div class="wrap">
+    <div class="hello">Secure payment</div>
+    <h1 class="page-title">Pay electricity bill</h1>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <h2>Payment summary</h2>
+          <div class="rows">
+            <div class="r"><span class="k">Electricity bill</span><span class="v" id="amt">₹1,240</span></div>
+            <div class="r"><span class="k">Consumer</span><span class="v">REACH-2026-001</span></div>
+            <div class="r"><span class="k">Convenience fee</span><span class="v">₹0</span></div>
+            <div class="r"><span class="k">Total payable</span><span class="v" id="total">₹1,240</span></div>
+          </div>
+
+          <!-- The pay control is injected by scenario (see app.js). -->
+          <div id="paySlot" style="margin-top:18px"></div>
+
+          <div id="status" class="status">Choose a payment method to continue.</div>
+        </div>
+
+        <div class="card" id="processingCard" hidden>
+          <h2>Processing</h2>
+          <p><span class="spinner"></span> <span id="procText">Processing payment…</span></p>
+        </div>
+      </div>
+
+      <div>
+        <div class="card side">
+          <h2>REACH activity <span class="tag-demo">demo mode</span></h2>
+          <div class="steps" id="steps"></div>
+        </div>
+        <div id="demoCtl"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>Payments processed via Razorpay <strong>Test Mode</strong> — no real money moves.</footer>
+
+  <script src="app.js"></script>
+  <script>
+    document.getElementById("chrome").innerHTML = topbar("payment.html");
+    document.getElementById("demoCtl").innerHTML = demoControls();
+    wireDemoControls();
+    Activity.mount(document.getElementById("steps"));
+    document.getElementById("amt").textContent = money(BILL.amount);
+    document.getElementById("total").textContent = money(BILL.amount);
+
+    const sc = scenario();
+    const slot = document.getElementById("paySlot");
+
+    function pay() {
+      simulatePipeline(sc);
+      payAuto(BILL.amount, BILL.consumer);          // autonomous — no card UI
+    }
+    function payManual() {
+      simulatePipeline(sc);
+      payWithRazorpay(BILL.amount, BILL.consumer);  // real Razorpay Checkout modal
+    }
+
+    if (sc === "conflict") {
+      // Looks like "Pay Now"; accessible name is "Cancel"; does NOT pay.
+      slot.innerHTML =
+        '<button id="pay-trap" class="btn pay-lg" aria-label="Cancel">Pay Now</button>';
+      document.getElementById("pay-trap").onclick = () => {
+        simulatePipeline("conflict");
+        setStatus("warn", "This control was cancelled. (Its accessible name is “Cancel”.)");
+      };
+      setStatus("", "Scenario: Structure/Vision conflict — REACH should refuse this button.");
+    } else if (sc === "ambiguous") {
+      slot.innerHTML = '<button id="pay" class="btn pay-lg" aria-label="button">💳</button>';
+      document.getElementById("pay").onclick = () => {
+        simulatePipeline("ambiguous");
+        document.getElementById("processingCard").hidden = false;
+        setStatus("warn", "Payment submitted — waiting for confirmation…");
+        // never resolves: no receipt, no transaction id  -> Verification = AMBIGUOUS
+      };
+    } else if (sc === "success") {
+      slot.innerHTML = '<button id="pay" class="btn pay-lg" aria-label="button">💳</button>';
+      document.getElementById("pay").onclick = () => {
+        simulatePipeline("success");
+        finishPayment("order_demo_" + Date.now(), "pay_" + Math.random().toString(36).slice(2, 14), "");
+      };
+    } else if (sc === "vision") {
+      slot.innerHTML =
+        '<button id="pay" class="btn pay-lg" aria-label="button">💳</button>' +
+        '<div style="margin-top:8px"><a href="#" id="manual">Open Razorpay checkout instead →</a></div>';
+      document.getElementById("pay").onclick = pay;
+      document.getElementById("manual").onclick = (e) => { e.preventDefault(); payManual(); };
+      setStatus("", "Scenario: icon-only control — Structure is unsure, Vision resolves it.");
+    } else {
+      slot.innerHTML =
+        '<button id="pay" class="btn pay-lg">💳  Pay ' + money(BILL.amount) + '</button>' +
+        '<div style="margin-top:8px"><a href="#" id="manual">Open Razorpay checkout instead →</a></div>';
+      document.getElementById("pay").onclick = pay;
+      document.getElementById("manual").onclick = (e) => { e.preventDefault(); payManual(); };
+    }
+  </script>
+</body>
+</html>

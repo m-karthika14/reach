@@ -3,144 +3,74 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>REACH Demo Portal - Page A</title>
-  <style>
-    body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; padding: 24px; background: #f4f6fb; color: #1b1b1b; }
-    .card { max-width: 560px; margin: 0 auto 20px; background: #fff; border: 1px solid #e3e6ee; border-radius: 12px; padding: 20px; }
-    h1 { margin-top: 0; }
-    label { display: block; margin: 12px 0 4px; font-weight: 600; }
-    input, select { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; }
-    button { margin-top: 14px; padding: 10px 16px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font-size: 14px; cursor: pointer; }
-    button.secondary { background: #64748b; }
-    .status { margin-top: 12px; padding: 10px; border-radius: 6px; background: #ecfdf5; color: #065f46; min-height: 20px; }
-    .spacer { height: 900px; background: repeating-linear-gradient(180deg, #eef2ff, #eef2ff 40px, #e0e7ff 40px, #e0e7ff 80px); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #475569; }
-    #bill-view[hidden] { display: none; }
-    #bill-view { border-color: #bfdbfe; background: #f8fbff; }
-    #bill-view table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    #bill-view td { padding: 6px 4px; border-bottom: 1px solid #e3e6ee; }
-    #bill-view td:last-child { text-align: right; font-weight: 600; }
-    .iconbar { display: flex; gap: 14px; margin-top: 8px; }
-    .iconbar button { font-size: 26px; padding: 10px 16px; background: #eef2ff; color: inherit; }
-    #pay-panel[hidden], #profile-panel[hidden] { display: none; }
-    #pay-panel { border-color: #bfdbfe; background: #f8fbff; }
-  </style>
+  <title>REACH Energy — Account</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="card">
-    <h1>Electricity Account</h1>
-    <p>Bill: <strong>&#8377;1,240</strong></p>
+  <div id="chrome"></div>
 
-    <button id="pay-button">Pay Bill</button>
-    <button id="view-bill" class="secondary">View Bill</button>
+  <div class="wrap">
+    <div class="hello">Good evening</div>
+    <h1 class="page-title">Electricity Account</h1>
 
-    <label for="email">Email</label>
-    <input id="email" type="email" placeholder="Email" />
+    <div class="grid">
+      <div>
+        <!-- HERO BILL — the round action is semantically bare on purpose -->
+        <div class="card bill-hero">
+          <h3>Current bill</h3>
+          <div class="bill-amount" id="heroAmount">₹1,240</div>
+          <div class="bill-meta">Consumer <strong>REACH-2026-001</strong> · <span class="pill due">Due today</span></div>
+          <button class="fab" id="pay" aria-label="button" title="">💳</button>
+        </div>
 
-    <label for="language">Language</label>
-    <select id="language">
-      <option value="english">English</option>
-      <option value="kannada">Kannada</option>
-      <option value="hindi">Hindi</option>
-    </select>
+        <div class="card">
+          <h2>Quick actions</h2>
+          <div class="quick">
+            <div class="tile"><button id="nav-home" aria-label="button">🏠</button><div class="cap">Home</div></div>
+            <div class="tile"><button id="nav-pay" aria-label="button">💳</button><div class="cap">Payment</div></div>
+            <div class="tile"><button id="nav-bills" aria-label="button">📄</button><div class="cap">Bills</div></div>
+            <div class="tile"><button id="nav-account" aria-label="button">👤</button><div class="cap">Account</div></div>
+          </div>
+        </div>
 
-    <button id="submit-btn">Submit</button>
+        <div class="card">
+          <h2>Recent activity</h2>
+          <div class="rows">
+            <div class="r"><span class="k">Jul 2026 · Electricity bill</span><span class="v">₹1,180 · Paid</span></div>
+            <div class="r"><span class="k">Jun 2026 · Electricity bill</span><span class="v">₹1,090 · Paid</span></div>
+            <div class="r"><span class="k">May 2026 · Electricity bill</span><span class="v">₹1,305 · Paid</span></div>
+          </div>
+        </div>
 
-    <!-- Phase 6: deliberately inaccessible icon nav. All three have the same
-         useless aria-label; only the emoji distinguishes them. Structure Agent
-         cannot tell which is payment -> Vision Agent reads the screenshot. -->
-    <div class="iconbar" aria-label="navigation">
-      <button id="icon-home" aria-label="button">&#127968;</button>
-      <button id="icon-pay" aria-label="button">&#128179;</button>
-      <button id="icon-user" aria-label="button">&#128100;</button>
+        <div id="status" class="status">Waiting for action…</div>
+      </div>
+
+      <div>
+        <div class="card side">
+          <h2>REACH activity <span class="tag-demo">demo mode</span></h2>
+          <div class="steps" id="steps"></div>
+        </div>
+        <div id="demoCtl"></div>
+      </div>
     </div>
-
-    <div class="status" id="status">Waiting for action&hellip;</div>
-
-    <p style="margin-top:16px"><a href="page-b.html" id="to-page-b">Go to Page B</a></p>
   </div>
 
-  <div class="card" id="pay-panel" hidden>
-    <h2>Make a Payment</h2>
-    <p>Amount: <strong>&#8377;1,240.00</strong></p>
-    <label for="card-number">Card number</label>
-    <input id="card-number" inputmode="numeric" placeholder="0000 0000 0000 0000" />
-    <button id="confirm-payment">Confirm payment</button>
-  </div>
+  <footer>REACH Energy is a controlled demo portal. Payments run through Razorpay <strong>Test Mode</strong>.</footer>
 
-  <div class="card" id="profile-panel" hidden>
-    <h2>Your Profile</h2>
-    <p>Name: Karthika M &nbsp;&middot;&nbsp; Consumer no. 4471-2290</p>
-  </div>
-
-  <div class="card" id="bill-view" hidden>
-    <h2>Electricity Bill</h2>
-    <p>Account 4471-2290 &nbsp;&middot;&nbsp; Billing period Aug 2026</p>
-    <table>
-      <tr><td>Units consumed</td><td>312 kWh</td></tr>
-      <tr><td>Amount due</td><td>&#8377;1,240.00</td></tr>
-      <tr><td>Due date</td><td>15 Sep 2026</td></tr>
-      <tr><td>Status</td><td>Unpaid</td></tr>
-    </table>
-    <button id="download-bill">Download PDF</button>
-    <button id="payment-details" class="secondary">Payment details</button>
-  </div>
-
-  <div class="card" id="payment-history" hidden>
-    <h2>Payment History</h2>
-    <table>
-      <tr><td>Jul 2026</td><td>&#8377;1,180.00 &middot; Paid</td></tr>
-      <tr><td>Jun 2026</td><td>&#8377;1,090.00 &middot; Paid</td></tr>
-      <tr><td>May 2026</td><td>&#8377;1,305.00 &middot; Paid</td></tr>
-    </table>
-    <p>Autopay: <strong>Off</strong> &nbsp;&middot;&nbsp; Preferred method: UPI</p>
-  </div>
-
-  <div class="card">
-    <h2>Scroll target</h2>
-    <div class="spacer">Scroll down to reach me</div>
-    <button id="bottom-button">Bottom Button</button>
-  </div>
-
+  <script src="app.js"></script>
   <script>
-    const status = document.getElementById("status");
-    function report(msg) { status.textContent = msg; }
+    document.getElementById("chrome").innerHTML = topbar("index.html");
+    document.getElementById("demoCtl").innerHTML = demoControls();
+    wireDemoControls();
+    Activity.mount(document.getElementById("steps"));
+    document.getElementById("heroAmount").textContent = money(BILL.amount);
 
-    document.getElementById("pay-button").addEventListener("click", () => report("Pay Bill clicked at " + new Date().toLocaleTimeString()));
-    document.getElementById("view-bill").addEventListener("click", () => {
-      const bill = document.getElementById("bill-view");
-      bill.hidden = false;
-      bill.scrollIntoView({ behavior: "smooth", block: "start" });
-      report("Electricity bill opened");
-    });
-    document.getElementById("download-bill").addEventListener("click", () => report("Bill PDF downloaded"));
-    document.getElementById("payment-details").addEventListener("click", () => {
-      const ph = document.getElementById("payment-history");
-      ph.hidden = false;
-      ph.scrollIntoView({ behavior: "smooth", block: "start" });
-      report("Payment details opened");
-    });
-    document.getElementById("bottom-button").addEventListener("click", () => report("Bottom Button clicked"));
-    document.getElementById("icon-home").addEventListener("click", () => {
-      window.scrollTo({ top: 0, behavior: "smooth" }); report("Home");
-    });
-    document.getElementById("icon-pay").addEventListener("click", () => {
-      const p = document.getElementById("pay-panel");
-      p.hidden = false; p.scrollIntoView({ behavior: "smooth", block: "start" });
-      report("Payment screen opened");
-    });
-    document.getElementById("icon-user").addEventListener("click", () => {
-      const p = document.getElementById("profile-panel");
-      p.hidden = false; p.scrollIntoView({ behavior: "smooth", block: "start" });
-      report("Profile opened");
-    });
-    document.getElementById("confirm-payment").addEventListener("click", () => report("Payment confirmed - receipt #RCPT-8890"));
-    document.getElementById("submit-btn").addEventListener("click", () => {
-      const email = document.getElementById("email").value;
-      const lang = document.getElementById("language").value;
-      report("Submitted email=" + email + " language=" + lang);
-    });
-    document.getElementById("email").addEventListener("input", (e) => report("Typing email: " + e.target.value));
-    document.getElementById("language").addEventListener("change", (e) => report("Language changed to: " + e.target.value));
+    const go = (h) => () => (location.href = h);
+    document.getElementById("nav-home").onclick = () => setStatus("", "Home");
+    document.getElementById("nav-bills").onclick = go("bill.html");
+    document.getElementById("nav-account").onclick = () => setStatus("", "Account");
+    document.getElementById("nav-pay").onclick = go("payment.html");
+    document.getElementById("pay").onclick = () => { setStatus("", "Opening payment…"); go("payment.html")(); };
   </script>
 </body>
 </html>

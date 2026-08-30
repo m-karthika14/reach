@@ -16,7 +16,10 @@ from typing import Any, Optional
 log = logging.getLogger("reach.memory")
 
 DATABASE = os.environ.get("REACH_FIRESTORE_DB", "reach-memory")
-COLLECTIONS = ("page_memory", "correction_memory", "preference_memory", "task_history")
+COLLECTIONS = (
+    "page_memory", "correction_memory", "preference_memory", "task_history",
+    "payment_transactions",  # Phase 13 - Razorpay test orders / results
+)
 
 
 class _InMemory:
@@ -50,8 +53,10 @@ class _Firestore:
 
     def __init__(self) -> None:
         from google.cloud import firestore
+        from google.cloud.firestore_v1.base_query import FieldFilter
 
         self._db = firestore.Client(database=DATABASE)
+        self._FieldFilter = FieldFilter
 
     def add(self, collection: str, doc: dict, doc_id: Optional[str] = None) -> str:
         if doc_id:
@@ -68,7 +73,7 @@ class _Firestore:
         col = self._db.collection(collection)
         if where:
             for k, v in where.items():
-                col = col.where(k, "==", v)
+                col = col.where(filter=self._FieldFilter(k, "==", v))
         return [d.to_dict() | {"_id": d.id} for d in col.limit(200).stream()]
 
 

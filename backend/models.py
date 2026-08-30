@@ -154,3 +154,20 @@ class PreferencePatch(BaseModel):
     confirmation_style: Optional[str] = None
     preferred_navigation: Optional[str] = None
     confirmation_before_payment: Optional[bool] = None
+
+
+# --------------------------------------------------------------------------- #
+# Phase 13 - demo portal payments (Razorpay Test Mode)
+# --------------------------------------------------------------------------- #
+
+
+class CreateOrderRequest(BaseModel):
+    amount: float                 # rupees
+    consumer: Optional[str] = None
+    note: Optional[str] = None
+
+
+class VerifyPaymentRequest(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: Optional[str] = None

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>REACH Energy — Payment successful</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="chrome"></div>
+
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <div class="card receipt">
+          <div class="check">✓</div>
+          <h1>Payment successful</h1>
+          <p style="color:var(--muted);margin:0">Your electricity bill has been paid.</p>
+          <div class="amt" id="amt">₹1,240</div>
+          <div class="rows">
+            <div class="r"><span class="k">Status</span><span class="v">Paid</span></div>
+            <div class="r"><span class="k">Transaction ID</span><span class="v" id="pid">—</span></div>
+            <div class="r"><span class="k">Order ID</span><span class="v" id="oid">—</span></div>
+            <div class="r"><span class="k">Receipt</span><span class="v" id="rcpt">—</span></div>
+            <div class="r"><span class="k">Consumer</span><span class="v">REACH-2026-001</span></div>
+            <div class="r"><span class="k">Date</span><span class="v" id="dt">—</span></div>
+          </div>
+          <div class="btnrow" style="justify-content:center">
+            <a class="btn" href="index.html">Back to account</a>
+            <a class="btn secondary" href="bill.html">View bill</a>
+          </div>
+        </div>
+        <div id="status" class="status ok">Payment confirmed and verified.</div>
+      </div>
+
+      <div>
+        <div class="card side">
+          <h2>REACH activity <span class="tag-demo">demo mode</span></h2>
+          <div class="steps" id="steps"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>Razorpay Test Mode receipt — no real payment occurred.</footer>
+
+  <script src="app.js"></script>
+  <script>
+    document.getElementById("chrome").innerHTML = topbar("");
+    Activity.mount(document.getElementById("steps"));
+    ["observe","memory","structure","vision","reconcile","action","execute"].forEach(s => Activity.set(s, "ok"));
+    Activity.set("verify", "ok", "receipt + transaction id present");
+
+    let r = {};
+    try { r = JSON.parse(sessionStorage.getItem("reach_receipt") || "{}"); } catch (e) {}
+    const oid = new URLSearchParams(location.search).get("order_id") || r.order_id || "";
+    document.getElementById("amt").textContent = money((r.amount || 124000) / 100 || BILL.amount);
+    document.getElementById("pid").textContent = r.payment_id || "pay_demo";
+    document.getElementById("oid").textContent = oid || "order_demo";
+    document.getElementById("rcpt").textContent = r.receipt || "RCPT-DEMO";
+    document.getElementById("dt").textContent = new Date().toLocaleString("en-IN");
+  </script>
+</body>
+</html>

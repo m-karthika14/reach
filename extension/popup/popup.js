@@ -300,9 +300,13 @@ function chatErr(msg) {
   return null;
 }
 
+// Set true when a turn actually executed a browser action (so voice can auto-verify).
+let lastTurnExecuted = false;
+
 // Shared by the text box and the voice controller. Returns the /chat response.
 async function submitMessage(message) {
   if (!message) return null;
+  lastTurnExecuted = false;
   const backend = (backendInput.value.trim() || DEFAULT_BACKEND).replace(/\/$/, "");
   chatMsg("user", "You", message);
 
@@ -413,6 +417,7 @@ async function submitMessage(message) {
     chatMsg("meta", "", `↳ executed ${a.action} ${a.target || ""}`);
     chatPrevDom = JSON.stringify(page);
     chatLastExecuted = { action: a.action, target: a.target, value: a.value, success: true };
+    lastTurnExecuted = true;
   } else {
     chatMsg("meta", "", "↳ execution failed: " + JSON.stringify(result));
   }
@@ -426,29 +431,38 @@ chatInput.addEventListener("keydown", (e) => {
 
 // ---- Voice + accessibility (Phase 12) -------------------------------------
 // Voice is just another input into the SAME /chat pipeline - no second agent.
+// Hands-free flow:  say "REACH"  ->  chime  ->  speak command  ->  REACH acts
+//                   & speaks the result  ->  back to listening for "REACH".
 
 const voiceBtn = $("voiceBtn");
 const voiceStatus = $("voiceStatus");
 const voiceTranscript = $("voiceTranscript");
 const ttsToggle = $("ttsToggle");
+const wakeToggle = $("wakeToggle");
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const LANG_TAG = { en: "en-US", kn: "kn-IN", hi: "hi-IN", ta: "ta-IN", te: "te-IN" };
+
+// Wake word - lenient, since a false positive only costs a "Yes?" + timeout.
+const WAKE = /\b(reach|reache|reech|rich|reece|preach|beach|each|hey reach|ok reach|okay reach)\b/i;
 
 // Strict allowlists - unclear speech is NEVER a confirmation (Step 12.13).
 const AFFIRM = /^\s*(yes|yeah|yep|yup|yidhu|sure|ok|okay|do it|go ahead|confirm|proceed|correct|please do|haudu|haan)\b/i;
 const NEGATIVE = /^\s*(no|nope|nah|don'?t|do not|cancel|stop|illa|nahi)\b/i;
 
-let recognition = null;
+let recognition = null;   // command / confirmation recognizer (one-shot)
+let wakeRec = null;       // wake-word recognizer (continuous)
 let voiceState = "idle";
 let listenTimer = null;
 let awaitingConfirm = false;
+let wakeArmed = false;     // wakeRec is currently running
 
 const STATE_LABEL = {
   idle: "🎙 Start REACH",
+  waiting: "👂 Say “REACH”",
   listening: "🔴 Listening… (click to stop)",
   processing: "⏳ REACH is thinking…",
   speaking: "🔊 REACH is responding… (click to stop)",
-  error: "⚠ Voice unavailable — retry"
+  error: "⚠ Voice — click to retry"
 };
 
 function setVoiceState(s, statusMsg) {
@@ -459,19 +473,81 @@ function setVoiceState(s, statusMsg) {
   if (statusMsg !== undefined) voiceStatus.textContent = statusMsg;
 }
 
-function announce(msg) {
-  voiceStatus.textContent = msg;
-}
-
-function speak(text) {
-  if (!ttsToggle.checked || !text || !window.speechSynthesis) return;
+function speak(text, { onend } = {}) {
+  if (!text || !window.speechSynthesis || !ttsToggle.checked) { onend && onend(); return; }
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = LANG_TAG[$("prefLanguage").value] || "en-US";
   setVoiceState("speaking", "REACH is responding.");
-  u.onend = () => { if (voiceState === "speaking") setVoiceState("idle", ""); };
-  u.onerror = () => { if (voiceState === "speaking") setVoiceState("idle", ""); };
+  const done = () => { if (voiceState === "speaking") setVoiceState("idle", ""); onend && onend(); };
+  u.onend = done;
+  u.onerror = done;
   window.speechSynthesis.speak(u);
+}
+
+// ---- wake-word listening (continuous) ----
+function startWake() {
+  if (!SR || !wakeToggle.checked || wakeArmed) return;
+  if (voiceState === "listening" || voiceState === "processing" || voiceState === "speaking") return;
+  try {
+    wakeRec = new SR();
+    wakeRec.lang = LANG_TAG[$("prefLanguage").value] || "en-US";
+    wakeRec.continuous = true;
+    wakeRec.interimResults = true;
+    wakeRec.onstart = () => { wakeArmed = true; setVoiceState("waiting", "Listening — say “REACH”."); };
+    wakeRec.onresult = (e) => {
+      let text = "";
+      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+      text = text.trim();
+      voiceTranscript.textContent = text;
+      const m = text.match(WAKE);
+      if (!m) return;
+      stopWake();
+      // "reach, open my bill" said in one breath -> use the trailing part now.
+      const rest = text.slice(m.index + m[0].length).replace(/^[\s,.:;-]+/, "").trim();
+      voiceTranscript.textContent = "";
+      if (rest.split(/\s+/).length >= 2) {
+        setVoiceState("processing", "REACH is processing your request.");
+        submitMessage(rest).then(handleReply);
+      } else {
+        speak("Yes?", { onend: () => startListening(false) });
+      }
+    };
+    wakeRec.onerror = (e) => {
+      wakeArmed = false;
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        setVoiceState("error", "Microphone access isn't granted. Click “microphone setup”.");
+        openMicSetup();
+        return;
+      }
+      // no-speech / aborted / network -> quietly re-arm
+      setTimeout(startWake, 600);
+    };
+    wakeRec.onend = () => {
+      wakeArmed = false;
+      if (wakeToggle.checked && voiceState === "waiting") setTimeout(startWake, 400);
+    };
+    wakeRec.start();
+  } catch (e) {
+    wakeArmed = false;
+    setTimeout(startWake, 800);
+  }
+}
+
+function stopWake() {
+  wakeArmed = false;
+  try { wakeRec && wakeRec.abort(); } catch (e) { /* noop */ }
+  wakeRec = null;
+}
+
+// Return to the resting state: wake-listening if enabled, else idle.
+function restVoice(msg) {
+  if (wakeToggle.checked && SR) {
+    setVoiceState("waiting", msg || "Listening — say “REACH”.");
+    setTimeout(startWake, 300);
+  } else {
+    setVoiceState("idle", msg || "");
+  }
 }
 
 function stopVoice() {
@@ -479,14 +555,16 @@ function stopVoice() {
   awaitingConfirm = false;
   try { recognition && recognition.abort(); } catch (e) { /* noop */ }
   try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* noop */ }
-  setVoiceState("idle", "Stopped.");
+  restVoice("Stopped.");
 }
 
+// ---- command / confirmation listening (one-shot) ----
 function startListening(forConfirm = false) {
   if (!SR) {
     setVoiceState("error", "Speech recognition isn't available in this browser.");
     return;
   }
+  stopWake();
   awaitingConfirm = forConfirm;
   voiceTranscript.textContent = "";
   recognition = new SR();
@@ -495,7 +573,7 @@ function startListening(forConfirm = false) {
   recognition.maxAlternatives = 1;
 
   recognition.onstart = () =>
-    setVoiceState("listening", forConfirm ? "Say “yes” or “no”." : "REACH is listening.");
+    setVoiceState("listening", forConfirm ? "Say “yes” or “no”." : "REACH is listening — say your request.");
 
   recognition.onresult = (e) => {
     let text = "";
@@ -512,15 +590,15 @@ function startListening(forConfirm = false) {
       ? "I didn't hear anything."
       : "Voice error: " + e.error + ".";
     setVoiceState("error", msg);
-    if (blocked) openMicSetup();
-    speak(blocked ? "Microphone access is not granted. Please allow it and retry." : msg);
+    if (blocked) { openMicSetup(); return; }
+    speak(msg, { onend: () => restVoice() });
   };
 
   recognition.onend = async () => {
     clearTimeout(listenTimer);
     const text = voiceTranscript.textContent.trim();
     if (!text) {
-      if (voiceState === "listening") setVoiceState("idle", "I didn't hear anything.");
+      speak("I didn't hear anything.", { onend: () => restVoice("I didn't hear anything.") });
       return;
     }
 
@@ -529,10 +607,8 @@ function startListening(forConfirm = false) {
       if (AFFIRM.test(text)) return handleReply(await submitMessage("yes"));
       if (NEGATIVE.test(text)) return handleReply(await submitMessage("no"));
       // Ambiguous during a confirmation -> do NOT act (Step 12.13 / 12.34).
-      const m = "I didn't catch a clear yes or no, so I won't proceed. Please say “yes” or “no”.";
-      setVoiceState("idle", m);
-      speak(m);
-      setTimeout(() => startListening(true), 1200);
+      speak("I didn't catch a clear yes or no, so I won't proceed. Please say yes or no.",
+        { onend: () => startListening(true) });
       return;
     }
 
@@ -546,32 +622,35 @@ function startListening(forConfirm = false) {
     setVoiceState("error", "Couldn't start the microphone.");
     return;
   }
-  // Speech timeout (Step 12.25).
-  listenTimer = setTimeout(() => {
-    try { recognition.stop(); } catch (e) { /* noop */ }
-  }, 9000);
+  listenTimer = setTimeout(() => { try { recognition.stop(); } catch (e) { /* noop */ } }, 9000);
 }
 
+let voiceAutoVerify = false;   // guard: only one auto follow-up per action
+
 async function handleReply(r) {
-  if (!r) {
-    setVoiceState("idle", "");
+  if (!r) return restVoice();
+
+  if (r.requires_confirmation) {
+    speak(r.message, { onend: () => startListening(true) });
     return;
   }
-  speak(r.message);
-  if (r.requires_confirmation) {
-    // let TTS finish, then listen for yes/no
-    const waitThenListen = () => {
-      if (window.speechSynthesis && window.speechSynthesis.speaking) {
-        setTimeout(waitThenListen, 200);
-      } else {
-        startListening(true);
-      }
-    };
-    setTimeout(waitThenListen, 300);
-  } else {
-    announce("REACH finished.");
-    if (voiceState !== "speaking") setVoiceState("idle", "");
+
+  // Just executed a browser action (e.g. paying) -> speak progress, then let the
+  // page settle and automatically verify + speak the outcome. No user turn needed.
+  if (lastTurnExecuted && !voiceAutoVerify) {
+    voiceAutoVerify = true;
+    speak(r.message || "Working on it.", {
+      onend: () => setTimeout(async () => {
+        setVoiceState("processing", "Checking the result…");
+        const v = await submitMessage("did it work?");
+        voiceAutoVerify = false;
+        await handleReply(v);
+      }, 1800)
+    });
+    return;
   }
+
+  speak(r.message, { onend: () => restVoice("REACH finished.") });
 }
 
 function openMicSetup() {
@@ -585,17 +664,24 @@ $("micSetup").addEventListener("click", (e) => { e.preventDefault(); openMicSetu
 
 voiceBtn.addEventListener("click", () => {
   if (voiceState === "listening" || voiceState === "speaking") stopVoice();
-  else startListening(false);
+  else startListening(false);          // click = skip the wake word
 });
 
-// Alt+R: the service worker set a fresh flag just before opening this popup.
+wakeToggle.addEventListener("change", () => {
+  if (wakeToggle.checked) startWake();
+  else { stopWake(); setVoiceState("idle", "Wake word off — press the mic to talk."); }
+});
+
+// On open: Alt+R -> immediate command listen; otherwise arm the wake word.
 storageLocal.get(["reach_voice_pending"], (s) => {
+  if (!SR) return setVoiceState("idle", "Voice input isn't supported here — type below.");
   if (s.reach_voice_pending && Date.now() - s.reach_voice_pending < 5000) {
     storageLocal.remove("reach_voice_pending");
-    if (SR) startListening(false);
+    startListening(false);
     return;
   }
-  setVoiceState("idle", SR ? "Press the mic or Alt+R and speak your request." : "Voice input isn't supported here — type below.");
+  if (wakeToggle.checked) startWake();
+  else setVoiceState("idle", "Press the mic or Alt+R and speak your request.");
 });
 
 $("ask").addEventListener("click", async () => {
