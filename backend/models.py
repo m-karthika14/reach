@@ -26,7 +26,9 @@ class AgentResponse(BaseModel):
     # Phase 6 perception routing / metrics
     perception_mode: Optional[str] = None   # "structure" | "vision" | "reconciliation"
     vision_used: bool = False
-    timings: Optional[dict] = None          # {structure_ms, vision_ms?, reconciliation_ms?, action_ms}
+    timings: Optional[dict] = None          # {structure_ms, gemma_ms?, vision_ms?, reconciliation_ms?, action_ms}
+    # Phase 14 - Gemma fast-filter (second Google model): which candidates it kept
+    gemma: Optional[dict] = None            # {used, model, candidates_in, candidates_out, kept, ...}
     # Phase 7 - Structure vs Vision reconciliation (present only when Vision ran)
     reconciliation: Optional[dict] = None   # {status: AGREE|CONFLICT|UNKNOWN, ...}
     # Phase 9 - memory retrieved for this decision (RAG)

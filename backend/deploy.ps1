@@ -26,7 +26,16 @@ gcloud projects add-iam-policy-binding $PROJECT --member "serviceAccount:$SA" --
 gcloud projects add-iam-policy-binding $PROJECT --member "serviceAccount:$SA" --role "roles/datastore.user"   | Out-Null
 
 # ---- Build env-vars string from .env --------------------------------------
-$envPairs = @("GOOGLE_CLOUD_PROJECT=$PROJECT", "GOOGLE_CLOUD_LOCATION=$REGION")
+# Non-secret model config. Gemma (the fast candidate filter) is served as MaaS
+# on the Vertex "global" endpoint and authenticates with the Cloud Run service
+# account via ADC - no API key.
+$envPairs = @(
+    "GOOGLE_CLOUD_PROJECT=$PROJECT",
+    "GOOGLE_CLOUD_LOCATION=$REGION",
+    "GEMMA_MODEL=gemma-4-26b-a4b-it-maas",
+    "GEMMA_LOCATION=global",
+    "GEMMA_ENABLED=1"
+)
 if (Test-Path ".env") {
     foreach ($line in Get-Content ".env") {
         if ($line -match '^\s*(RAZORPAY_[A-Z_]+)\s*=\s*(.+?)\s*$') {

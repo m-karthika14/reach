@@ -1,6 +1,8 @@
-# REACH Backend — Phase 11
+# REACH Backend — Phase 14
 
-FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`).
+FastAPI → **Google ADK agent team** → **Gemini 3.5 Flash** (Vertex AI, `asia-south1`),
+with a **Gemma 4** fast candidate filter (Vertex MaaS, `global`) in front of the
+reasoning path — see *Phase 14* below.
 Three memory scopes now: **session** (what we're doing), **website** (page +
 correction memory), **user** (preference profile). See `memory/README.md`.
 
@@ -42,6 +44,35 @@ the demo runs offline. `/` shows `payments_mode`. Results are written to the
 `success.html` as a receipt + transaction id — which the **existing Phase 8
 Verification Agent** reads as evidence. No agent code changes.
 `requirements.txt` adds `razorpay==1.4.2` (import is guarded).
+
+## Phase 14 - Gemma fast-filter (second Google model)
+
+`agents/gemma_classifier.py` — `GemmaClassifier.classify_candidates(goal,
+candidates, floor=…) -> GemmaClassificationResult`. After the Structure Agent
+reads the page, **Gemma 4** (`gemma-4-26b-a4b-it-maas`, Vertex AI MaaS on the
+`global` endpoint, ADC — no API key) scores every on-page button/link for the
+goal, so Vision / Reconciliation / Action reason over a short ranked shortlist
+instead of the whole page. Wired once in `root_agent.run_agent`, so `/agent`,
+`/agent/loop` and `/chat` all get it.
+
+Safety (unchanged guarantees + new ones):
+- a Gemma-named selector that isn't a real on-page element is **dropped** before
+  it reaches Vision/Action (or salvaged if it verbatim-contains exactly one real
+  selector); `gemini._normalize` still runs afterwards.
+- Structure's `relevant_elements` are a **floor** — Gemma can rank/narrow them
+  but never remove them.
+- **fail-open**: timeout (`GEMMA_TIMEOUT_S`, default 10 s), malformed JSON,
+  auth/model error, `< GEMMA_MIN_CANDIDATES` (6) elements, or `GEMMA_ENABLED=0`
+  → "keep every candidate", `used=false`, `fallback_reason` set. The pipeline is
+  never worse off than before Gemma.
+- correction-aware ranking still sees the **full** candidate set (a persisted
+  user correction is never filtered away).
+
+`AgentResponse.gemma` / `AgentResponse.timings.gemma_ms` carry the metrics.
+`POST /debug/gemma {goal, dom, url}` runs the filter in isolation (read-only).
+`GET /` reports `models: {reasoning, fast_filter}`. Env: `GEMMA_MODEL`,
+`GEMMA_LOCATION`, `GEMMA_ENABLED`, `GEMMA_TIMEOUT_S`, `GEMMA_MIN_CANDIDATES`
+(all non-secret; `deploy.ps1` sets the first three). Tests: `test_gemma.py`.
 
 `main.py` is only the HTTP boundary. Reasoning lives in `agents/`, the
 browser-loop controller in `loop/`, session state in `sessions/`.

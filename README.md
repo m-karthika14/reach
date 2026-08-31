@@ -6,8 +6,11 @@ electricity bill"** and it perceives the page (DOM **and** vision), decides the 
 action, **verifies** the outcome, refuses when it isn't sure, remembers what it
 learned, and adapts to how *you* like to work.
 
-Built on **Gemini 3.5 Flash** (Vertex AI), **Google ADK** (multi-agent), **Cloud
-Run**, and **Firestore**. Payments run through **Razorpay Test Mode**.
+Built on two Google models — **Gemini 3.5 Flash** for reasoning and **Gemma 4**
+(`gemma-4-26b-a4b-it-maas`) as a fast candidate pre-filter — plus **Google ADK**
+(multi-agent), **Cloud Run**, and **Firestore**. Both models are reached through
+Vertex AI with Application Default Credentials (no API keys). Payments run through
+**Razorpay Test Mode**.
 
 ---
 
@@ -37,10 +40,16 @@ Run**, and **Firestore**. Payments run through **Razorpay Test Mode**.
    │   DIALOGUE AGENT ─ resolve "it" / ordinals / "actually…" / stop / yes / preferences   │
    │        │                                                                              │
    │        ▼                                                                              │
-   │   STRUCTURE AGENT (DOM/ARIA)  ──confidence≥0.85 & !needs_vision──►  ACTION AGENT       │
-   │        │ low / icon-only                                              ▲                │
+   │   STRUCTURE AGENT (DOM/ARIA) [Gemini] ─ every on-page button/link → candidate list    │
+   │        │                                                                              │
+   │        ▼                                                                              │
+   │   GEMMA FAST-FILTER [Gemma 4 · Vertex MaaS] ─ score + rank candidates for the goal    │
+   │        │  focused shortlist  (Structure's picks are a floor; fail-open = keep all)    │
+   │        ▼                                                                              │
+   │   STRUCTURE confidence≥0.85 & !needs_vision ───────────────────────►  ACTION AGENT    │
+   │        │ low / icon-only                                              ▲   [Gemini]    │
    │        ▼                                                              │                │
-   │   VISION AGENT (screenshot) ──► RECONCILIATION ──AGREE──────────────►─┘                │
+   │   VISION AGENT (screenshot) [Gemini] ──► RECONCILIATION ──AGREE─────►─┘                │
    │                                     │ CONFLICT / UNKNOWN                               │
    │                                     ▼                                                 │
    │                              deterministic gate  →  action = none  ("I won't act")    │
@@ -69,8 +78,24 @@ Run**, and **Firestore**. Payments run through **Razorpay Test Mode**.
 ```
 
 **One request, end to end:**
-`observe → retrieve memory → interpret → structure → (vision) → reconcile → decide →
-safety gate → execute → observe again → verify → learn → speak the result`
+`observe → retrieve memory → interpret → structure → gemma fast-filter → (vision) →
+reconcile → decide → safety gate → execute → observe again → verify → learn →
+speak the result`
+
+### Two models, on purpose
+
+| Model | Role | Why |
+| --- | --- | --- |
+| **Gemini 3.5 Flash** | all reasoning agents (dialogue, structure, vision, reconciliation, action, verification) | multimodal, strong instruction-following, final authority on every decision |
+| **Gemma 4** (`gemma-4-26b-a4b-it-maas`, Vertex AI MaaS, `global` endpoint) | fast relevance filter between candidate generation and the Gemini reasoning path | a small open model is enough to say *"of these 30 buttons, these 4 relate to the goal"*; Gemini then reasons over a short list instead of the whole page |
+
+Gemma **never acts** — no clicks, types, navigation or payments. It only scores
+candidates. It cannot veto an element the Structure Agent already flagged
+(that set is a floor), a Gemma-named selector that isn't a real on-page element
+is dropped before it reaches anything, and **any** Gemma failure (timeout, bad
+JSON, model/credential error) falls back to "keep every candidate" — the
+pipeline is never worse off than before Gemma existed. Toggle with
+`GEMMA_ENABLED=0`; inspect it in isolation via `POST /debug/gemma`.
 
 ---
 
@@ -82,6 +107,7 @@ reach/
 │   ├── main.py              HTTP boundary only
 │   ├── agents/              Google ADK: dialogue, structure, vision, reconciliation, action,
 │   │                        verification, styler; root_agent orchestrates + logs
+│   │   └── gemma_classifier.py  Gemma 4 fast candidate filter (Vertex MaaS, fail-open)
 │   ├── loop/                Phase 4 autonomous step controller
 │   ├── sessions/            Firestore-backed multi-turn state + /chat turn
 │   ├── memory/              RAG: page_memory, correction_memory, preference_memory, task_history
@@ -89,7 +115,8 @@ reach/
 │   ├── payments.py          Razorpay Test Mode (orders, verify, webhook)  — secrets from env
 │   ├── gemini.py            page summariser + safety normaliser (no invented selectors)
 │   ├── deploy.ps1           one-command Cloud Run deploy (IAM + env vars)
-│   ├── test_e2e.py          reproducible end-to-end suite
+│   ├── test_e2e.py          reproducible end-to-end suite (13 checks)
+│   ├── test_gemma.py        Gemma fast-filter suite (invoked, never invents, fail-open)
 │   └── test_gemini.py / test_firestore.py / test_agent.py
 ├── extension/               Chrome MV3 extension  (loaded unpacked, runs in the browser)
 │   ├── manifest.json
@@ -110,7 +137,7 @@ reach/
 | Python 3.12 + the repo venv | `python -m venv .venv` at repo root, then `pip install -r backend/requirements.txt` |
 | Google Cloud project | `reach-agent-507107` (or your own) with billing on |
 | gcloud CLI | authenticated: `gcloud auth login` **and** `gcloud auth application-default login` |
-| Vertex AI | enabled; runtime identity has `roles/aiplatform.user` |
+| Vertex AI | enabled; runtime identity has `roles/aiplatform.user` — covers **both** Gemini 3.5 Flash (`asia-south1`) and Gemma 4 MaaS (`global` endpoint). No API key. |
 | Firestore | a database named **`reach-memory`** (Native mode); identity has `roles/datastore.user` |
 | Chrome | for the extension (Web Speech API for voice) |
 | Razorpay **test** keys | optional — without them payments run in clearly-labelled MOCK mode |
@@ -124,6 +151,19 @@ RAZORPAY_KEY_ID=rzp_test_xxxxxxxx
 RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxx
 RAZORPAY_WEBHOOK_SECRET=xxxxxxxx
 ```
+
+**Gemma fast-filter** needs no secret. It defaults to `gemma-4-26b-a4b-it-maas`
+on the Vertex `global` endpoint using the same ADC / service-account credentials
+as Gemini. Optional non-secret overrides (set in the shell, `.env`, or
+`deploy.ps1`'s `--set-env-vars`):
+
+| Var | Default | Meaning |
+| --- | --- | --- |
+| `GEMMA_ENABLED` | `1` | `0` bypasses Gemma entirely (Structure → Gemini only) |
+| `GEMMA_MODEL` | `gemma-4-26b-a4b-it-maas` | any Gemma model your project can reach on Vertex |
+| `GEMMA_LOCATION` | `global` | region for the Gemma call (MaaS Gemma is global-only) |
+| `GEMMA_TIMEOUT_S` | `10` | fall back to "keep all candidates" if Gemma is slower |
+| `GEMMA_MIN_CANDIDATES` | `6` | skip the filter when the page has fewer elements than this |
 
 ---
 
@@ -239,15 +279,24 @@ failure. Covers:
 | 10 | correction learning | `record_correction` retrievable in a **new** session; **user-scoped** |
 | 11 | `/preferences` | invalid value rejected; valid value persists |
 | 12 | `/payments/*` | real Razorpay order created (or MOCK) → capture → `SUCCESS` |
+| 13 | **Gemma fast-filter** | `/debug/gemma` shortlist ⊆ real on-page selectors & narrower than input; `/agent` still clicks `#view-bill` with Gemma on; `/` advertises both models |
 
 ### B. Individual smoke tests
 
 ```powershell
 python test_gemini.py       # Vertex AI + gemini-3.5-flash reachable
+python test_gemma.py        # Gemma 4 invoked over Vertex (ADC); never invents a selector; fail-open
 python test_firestore.py    # Firestore "reach-memory" writable
 # with the server running on :8080:
 python test_agent.py        # POST /agent with sample goals
 ```
+
+`test_gemma.py` (12 checks, ~1–3 min): Gemma actually runs and narrows a
+noisy nav bar to the goal-relevant elements; an invented / echoed selector is
+rejected or salvaged, never passed on; malformed JSON, a timeout, `GEMMA_ENABLED=0`
+and a tiny candidate list each fall back to "keep everything"; Structure-relevant
+selectors survive the filter; `/debug/gemma` is read-only; `run_agent` end-to-end
+still picks the right element.
 
 ### C. Manual demo scenarios (deterministic)
 
@@ -282,7 +331,8 @@ Settings →  Style = concise  vs  detailed  with user id A vs B  (same goal, di
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /health`, `GET /` | liveness; `/` reports `framework`, `payments_mode`, `session_backend` |
+| `GET /health`, `GET /` | liveness; `/` reports `framework`, `payments_mode`, `session_backend`, `models` (Gemini + Gemma) |
+| `POST /debug/gemma` | `{goal, dom, url}` → Gemma's candidate scores + shortlist. Read-only, runs no action. |
 | `POST /chat` | **primary** — one stateful conversational turn (voice + text) |
 | `POST /agent` | single-shot: goal + page → one action |
 | `POST /agent/loop` | one step of the autonomous observe→reason→act loop |
@@ -299,34 +349,14 @@ Per-area detail: [backend/README.md](backend/README.md) ·
 
 ---
 
-## 4-minute demo script
 
-1. **Inaccessible page** — the dashboard icons are `<button aria-label="button">💳`.
-   A screen reader is stuck; REACH isn't.
-2. **"REACH, open my electricity bill"** → Structure → click → **VERIFIED**, spoken.
-3. **"REACH, pay my electricity bill"** → icon-only → Structure unsure → **Vision** →
-   Reconcile AGREE → *"This will pay ₹1,240 through Razorpay — say yes"* → "yes" →
-   real Razorpay order + capture → **VERIFIED**, speaks the payment id / receipt.
-4. **New chat, same task** → memory panel shows the learned element; fewer model calls.
-5. **Conflict scenario** — DOM "Cancel" vs Vision "Pay Now" → **CONFLICT → blocked**:
-   *"I found conflicting information about this button, so I won't activate it."*
-6. **Ambiguous scenario** — payment with no receipt → *"I can't confirm the payment
-   finished, so I won't retry it."*
-7. Show **Cloud Run**, **Vertex AI / Gemini 3.5 Flash**, **Google ADK**, **Firestore**
-   collections filling up (`page_memory`, `correction_memory`, `payment_transactions`).
-
-> **Why "Collaborative Partner"?** REACH doesn't just complete a task. It remembers
-> how the site works, remembers how *you* prefer to interact, learns from your
-> corrections, verifies before claiming success, and refuses when the evidence
-> isn't there.
-
----
 
 ## Google technology used
 
 | Requirement | REACH |
 | --- | --- |
-| Gemini 3.5+ | `gemini-3.5-flash` on Vertex AI (every agent) |
+| Gemini 3.5+ | `gemini-3.5-flash` on Vertex AI (every reasoning agent) |
+| Gemma | `gemma-4-26b-a4b-it-maas` on Vertex AI (MaaS, `global`) — fast candidate pre-filter feeding the Gemini path; ADC auth, no API key |
 | Google agent framework | **Google ADK** — 7 `LlmAgent`s + `Runner` + session state, orchestrated by `root_agent` |
 | Google Cloud infrastructure | **Cloud Run** (FastAPI), **Firestore** (`reach-memory`), Cloud Build, Vertex AI |
 | Browser interface | Chrome MV3 extension (voice + DOM + screenshot + action engine) |

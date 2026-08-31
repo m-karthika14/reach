@@ -38,6 +38,7 @@ from tools.verification_tools import compare_page_states as _compare_page_states
 
 from .action_agent import action_agent
 from .config import APP_NAME, USER_ID, ensure_project
+from .gemma_classifier import GemmaClassificationResult, filter_candidates
 from .reconciliation_agent import reconciliation_agent
 from .structure_agent import structure_agent
 from .verification_agent import verification_agent
@@ -204,10 +205,47 @@ async def run_agent(
             "structure_confidence": s_conf,
         }
 
+        # -- GEMMA FAST-FILTER (Phase 14: REACH's second Google model) --- #
+        # Structure/Gemini has understood the page; Gemma now pre-screens the
+        # raw on-page candidates so the downstream Gemini agents (Vision,
+        # Reconciliation, Action) reason over a short, ranked shortlist instead
+        # of every element. Pure narrowing + ranking - Gemma never acts, cannot
+        # veto a Structure-relevant element, and any failure keeps every
+        # candidate (see gemma_classifier).
+        all_candidates = _candidates_from_dom(dom, limit=40)
+        structure_floor = {
+            e.get("selector") for e in (structure.get("relevant_elements") or [])
+            if isinstance(e, dict) and e.get("selector") in known_selectors
+        }
+        t_g = time.perf_counter()
+        try:
+            gemma_result = await filter_candidates(
+                goal, all_candidates, page_context=url, floor=structure_floor)
+        except Exception:  # noqa: BLE001 - never let the fast-filter break the pipeline
+            log.exception("[GEMMA] classifier raised - passthrough")
+            _sels = [c["selector"] for c in all_candidates]
+            gemma_result = GemmaClassificationResult(
+                used=False, model="unavailable", candidates_in=len(_sels),
+                candidates_out=len(_sels), kept=_sels, fallback_reason="classifier error")
+        timings["gemma_ms"] = round((time.perf_counter() - t_g) * 1000)
+
+        if gemma_result.used:
+            _order = {s: i for i, s in enumerate(gemma_result.kept)}
+            filtered_candidates = sorted(
+                (c for c in all_candidates if c["selector"] in gemma_result.kept_set),
+                key=lambda c: _order.get(c["selector"], 999),
+            )
+            perception["gemma_shortlist"] = [
+                {"selector": c["selector"], "name": c["name"]} for c in filtered_candidates
+            ]
+        else:
+            filtered_candidates = all_candidates
+        perception["gemma"] = gemma_result.summary()
+
         # -- VISION (fallback) ---------------------------------------- #
         if route_vision:
             image = _decode_screenshot(screenshot)
-            candidates = _candidates_from_dom(dom)
+            candidates = filtered_candidates
             cand_text = "\n".join(
                 f'{c["selector"]}   (label: "{c["name"]}")' for c in candidates
             ) or "(none)"
@@ -279,6 +317,7 @@ async def run_agent(
                 blocked.perception_mode = "reconciliation"
                 blocked.vision_used = True
                 blocked.timings = timings
+                blocked.gemma = gemma_result.summary()
                 blocked.reconciliation = reconciliation
                 return blocked
 
@@ -295,9 +334,11 @@ async def run_agent(
         log.info("[ACTION] raw %s", action)
 
         # -- CORRECTION-AWARE RANKING (Phase 10, Steps 10.12-10.14) ----- #
+        # Uses the FULL candidate set (not the Gemma shortlist): a persisted
+        # user correction is ground truth and must never be filtered away.
         ranking = _apply_correction_ranking(
             action, retrieved.get("corrections", []),
-            _candidates_from_dom(dom), known_selectors, goal,
+            all_candidates, known_selectors, goal,
         )
 
     except RuntimeError:
@@ -310,6 +351,7 @@ async def run_agent(
     response.perception_mode = perception_mode
     response.vision_used = vision_used
     response.timings = timings
+    response.gemma = gemma_result.summary()
     response.reconciliation = reconciliation
     response.memory = retrieved
     response.memory_used = bool(retrieved.get("page_memory") or retrieved.get("corrections"))

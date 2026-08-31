@@ -161,6 +161,34 @@ def main_suite() -> None:
     cap = C.post("/payments/test-capture", json={"order_id": o["order_id"]}).json()
     check("capture -> SUCCESS", cap.get("status") == "SUCCESS" and cap.get("verified"), str(cap.get("status")))
 
+    print("\n== 13. Gemma fast-filter — second model runs, never invents ==")
+    ICON_DOM = dom(
+        [{"id": "view-bill", "t": "View Bill"}, {"id": "pay-button", "t": "Pay Bill"},
+         {"id": "nav-home", "t": "Home"}, {"id": "nav-help", "t": "Help"},
+         {"id": "nav-logout", "t": "Log out"}, {"id": "nav-lang", "t": "English"},
+         {"id": "nav-profile", "t": "Profile"}, {"id": "nav-settings", "t": "Settings"}],
+        "Electricity Account  Bill 1,240  View Bill  Pay Bill",
+    )
+    g = C.post("/debug/gemma", json={"goal": "pay my electricity bill",
+                                     "dom": ICON_DOM, "url": "file:///d"}).json()
+    real = set(g.get("on_page_selectors", []))
+    check("Gemma invoked (used) or documented fallback",
+          g.get("used") is True or bool(g.get("fallback_reason")), str(g)[:160])
+    check("kept subset of real on-page selectors", set(g.get("kept", [])).issubset(real), str(g.get("kept")))
+    if g.get("used"):
+        check("shortlist narrower than input", g.get("candidates_out", 99) < len(real),
+              f"{g.get('candidates_out')} < {len(real)}")
+        check("pay element survived the filter", "#pay-button" in g.get("kept", []), str(g.get("kept")))
+    ga = C.post("/agent", json={"goal": "open my electricity bill", "url": "file:///d",
+                                "dom": ICON_DOM, "screenshot": None}).json()
+    check("agent still clicks #view-bill with Gemma on", ga.get("target") == "#view-bill", str(ga.get("target")))
+    check("gemma metric on /agent response", isinstance(ga.get("gemma"), dict), str(ga.get("gemma")))
+    root2 = C.get("/").json()
+    check("/ advertises both models",
+          root2.get("models", {}).get("reasoning") == "gemini-3.5-flash"
+          and "gemma" in str(root2.get("models", {}).get("fast_filter", "")).lower(),
+          str(root2.get("models")))
+
     print("\n" + ("=" * 48))
     if _fails:
         print(f"RESULT: {len(_fails)} FAILED -> " + ", ".join(_fails))

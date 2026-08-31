@@ -33,6 +33,10 @@ CURRENT URL:
 PERCEPTION (JSON). "mode" is "structure" (DOM/ARIA) or "vision" (screenshot was
 used because the DOM was ambiguous). If a "vision_target" is present, that
 selector is the visually-identified element for the goal - strongly prefer it.
+If "gemma_shortlist" is present, a fast pre-filter has already ranked the
+on-page elements most relevant to the goal (most relevant first) - use it to
+focus your choice, but it is a HINT, not a command, and "target" must still be a
+selector that appears in the FULL PAGE SUMMARY below.
 {perception}
 
 ACTIONS ALREADY TAKEN THIS TASK (most recent last):

@@ -24,7 +24,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import memory as _mem
 import payments as _pay
-from agents import run_agent, run_verification
+from agents import (
+    candidates_from_dom,
+    gemma_filter_candidates,
+    run_agent,
+    run_verification,
+)
+from agents.gemma_classifier import gemma_classifier
 from loop import run_loop_step
 from models import (
     AgentRequest,
@@ -43,7 +49,7 @@ from sessions import SessionManager, new_session_id, run_chat_turn
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="REACH", version="0.13.0")
+app = FastAPI(title="REACH", version="0.14.0")
 
 _sessions = SessionManager()
 
@@ -69,8 +75,31 @@ def root():
         "framework": "google-adk",
         "session_backend": _sessions.backend_kind,
         "endpoints": ["/health", "/agent", "/agent/loop", "/verify", "/chat",
-                      "/sessions", "/memory", "/preferences", "/payments/*"],
+                      "/sessions", "/memory", "/preferences", "/payments/*", "/debug/gemma"],
         "payments_mode": "real" if _pay.REAL else "mock",
+        "models": {
+            "reasoning": "gemini-3.5-flash",
+            "fast_filter": gemma_classifier.model if gemma_classifier.enabled else "(disabled)",
+        },
+    }
+
+
+@app.post("/debug/gemma")
+async def debug_gemma(body: dict):
+    """Inspect the Gemma fast-filter in isolation - scores on-page candidates for
+    a goal and returns the shortlist. Read-only: never executes a browser action."""
+    goal = (body or {}).get("goal", "")
+    dom = (body or {}).get("dom", "")
+    url = (body or {}).get("url", "")
+    if not goal or not dom:
+        raise HTTPException(status_code=400, detail="goal and dom are required")
+    candidates = candidates_from_dom(dom, limit=40)
+    result = await gemma_filter_candidates(goal, candidates, page_context=url)
+    return {
+        "goal": goal,
+        "on_page_selectors": [c["selector"] for c in candidates],
+        **result.summary(),  # used, model, candidates_in (count), candidates_out, kept, ...
+        "judgements": [j.model_dump() for j in result.judgements],
     }
 
 
