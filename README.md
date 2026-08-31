@@ -127,7 +127,29 @@ RAZORPAY_WEBHOOK_SECRET=xxxxxxxx
 
 ---
 
-## Run it locally (3 terminals)
+## Run it locally
+
+### 0 — One-time setup
+```powershell
+git clone <this-repo> K:\projects\reach
+cd K:\projects\reach
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r backend\requirements.txt
+
+# Google Cloud auth (needed for Vertex AI + Firestore)
+gcloud auth login
+gcloud auth application-default login
+gcloud config set project reach-agent-507107
+
+# create the Firestore database (once per project)
+gcloud firestore databases create --database=reach-memory --location=asia-south1 --type=firestore-native
+
+# secrets
+copy backend\.env.example backend\.env      # then edit backend\.env (see template above)
+```
+
+Then run the three pieces below (three terminals).
 
 ### 1 — Backend
 ```powershell
