@@ -9,7 +9,7 @@ just see a page; Phase 8 verification just reads the receipt off `success.html`.
 | File | Purpose |
 | --- | --- |
 | `index.html` | dashboard — hero bill card + a **bare `💳` action** (`aria-label="button"`) + a 4-icon quick-actions row, all `aria-label="button"` |
-| `bill.html` | bill detail (consumer no, due date, usage, previous bill) + Pay / History / an unlabelled ⬇︎ |
+| `bill.html` | bill detail (consumer no, due date, usage, previous bill) + Pay / History / **Download PDF** (generates `REACH-Energy-Electricity-Bill-Aug-2026.pdf` in-browser — no server) |
 | `payment.html` | payment summary; the pay control is **injected per scenario** |
 | `success.html` | receipt — **Transaction ID + Order ID + Receipt no.** → the evidence the Verification Agent reads |
 | `styles.css` / `app.js` | shared design system + logic (backend URL, scenarios, Razorpay checkout, activity panel) |

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>REACH Energy — Electricity Bill</title>
-  <link rel="stylesheet" href="styles.css?v=13" />
+  <link rel="stylesheet" href="styles.css?v=14" />
 </head>
 <body>
   <div id="chrome"></div>
@@ -33,8 +33,7 @@
           <div class="btnrow">
             <button class="btn" id="pay">Pay bill</button>
             <button class="btn secondary" id="history">View payment history</button>
-            <!-- deliberately unlabelled -->
-            <button class="btn ghost" id="download" aria-label="button">⬇︎</button>
+            <button class="btn secondary" id="download" aria-label="Download PDF">⬇︎ Download PDF</button>
           </div>
         </div>
 
@@ -63,7 +62,7 @@
 
   <footer>REACH Energy · controlled demo portal</footer>
 
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=14"></script>
   <script>
     document.getElementById("chrome").innerHTML = topbar("bill.html");
     document.getElementById("demoCtl").innerHTML = demoControls();
@@ -75,7 +74,10 @@
       simulatePipeline(scenario());
       payAuto(BILL.amount, BILL.consumer);   // pay directly — don't navigate
     };
-    document.getElementById("download").onclick = () => setStatus("ok", "Bill PDF downloaded.");
+    document.getElementById("download").onclick = () => {
+      downloadBillPdf(BILL);
+      setStatus("ok", "Electricity bill PDF downloaded (REACH-Energy-Electricity-Bill-Aug-2026.pdf).");
+    };
     document.getElementById("history").onclick = () => {
       document.getElementById("historyCard").hidden = false;
       document.getElementById("historyCard").scrollIntoView({ behavior: "smooth", block: "start" });
